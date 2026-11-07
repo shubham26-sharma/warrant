@@ -1,0 +1,92 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MandateStatus {
+  DRAFT
+  CONFIRMED
+}
+
+enum CartProposalSource {
+  AGENT_LIVE
+  AGENT_SCRIPTED
+}
+
+enum Verdict {
+  APPROVE
+  REVIEW
+  BLOCK
+}
+
+model Mandate {
+  id           String            @id @default(uuid())
+  familyId     String
+  version      Int
+  text         String
+  constraints  Json
+  hash         String
+  status       MandateStatus
+  confirmedAt  DateTime?
+  proposals    CartProposal[]
+
+  @@unique([familyId, version])
+}
+
+model CartProposal {
+  id         String            @id @default(uuid())
+  mandateId  String
+  cart       Json
+  cartHash   String
+  source     CartProposalSource
+  mandate    Mandate           @relation(fields: [mandateId], references: [id])
+  decisions  Decision[]
+}
+
+model Decision {
+  id             String          @id @default(uuid())
+  cartProposalId String
+  mandateHash    String
+  cartHash       String
+  verdict        Verdict
+  ruleResults    Json
+  aiResult       Json?
+  reasons        Json
+  createdAt      DateTime        @default(now())
+  cartProposal   CartProposal    @relation(fields: [cartProposalId], references: [id])
+  humanApproval  HumanApproval?
+  paypalOrder    PayPalOrder?
+}
+
+model HumanApproval {
+  id         String   @id @default(uuid())
+  decisionId String   @unique
+  note       String
+  createdAt  DateTime @default(now())
+  decision   Decision @relation(fields: [decisionId], references: [id])
+}
+
+model PayPalOrder {
+  id            String   @id @default(uuid())
+  decisionId    String   @unique
+  paypalOrderId String   @unique
+  status        String
+  totalCents    Int
+  currency      String
+  captureId     String?
+  createdAt     DateTime @default(now())
+  decision      Decision @relation(fields: [decisionId], references: [id])
+}
+
+model AuditEvent {
+  id        Int      @id @default(autoincrement())
+  type      String
+  payload   Json
+  prevHash  String
+  hash      String
+  createdAt DateTime @default(now())
+}

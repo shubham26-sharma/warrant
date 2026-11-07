@@ -18,8 +18,10 @@
         "name": "next"
       }
     ],
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"]
+      "@/lib/paypal": ["./lib/paypal.ts"],
+      "@/*": ["./src/*"]
     }
   },
   "include": [

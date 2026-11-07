@@ -6,10 +6,21 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:scenarios": "tsx tests/validate-scenarios.ts",
+    "eval": "node scripts/not-implemented.js eval",
+    "db:migrate": "node scripts/not-implemented.js db:migrate",
+    "db:seed": "node scripts/not-implemented.js db:seed",
+    "paypal:smoke": "node scripts/not-implemented.js paypal:smoke"
   },
   "dependencies": {
+    "@prisma/client": "^7.10.1",
+    "ag-grid-community": "^36.3.0",
+    "ag-grid-react": "^36.3.0",
     "next": "16.4.5",
+    "openai": "^7.53.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "^4.6.7"
@@ -19,10 +30,13 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@vitest/coverage-v8": "^4.1.12",
     "eslint": "^9",
     "eslint-config-next": "16.4.5",
+    "prisma": "^7.10.1",
     "tailwindcss": "^4",
     "tsx": "^4.23.15",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.12"
   }
 }
