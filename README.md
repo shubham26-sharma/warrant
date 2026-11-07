@@ -34,7 +34,7 @@ Copy these variables into the deployment host or `.env.local`; never commit cred
 | `AUDIT_HMAC_SECRET` | Server-side audit-chain HMAC secret. |
 | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | PayPal Sandbox server credentials. |
 | `GEMINI_API_KEY` / `GEMINI_MODEL` | Gemini API credentials and a model supporting the used structured output and function-calling features. |
-| `AI_TIMEOUT_MS` | Gemini request timeout in milliseconds; defaults to 30000 and accepts 1–120000. |
+| `AI_TIMEOUT_MS` | Total time budget in milliseconds for an agent run or an individual proposal's semantic check; defaults to 15000 and accepts 1–120000. |
 | `APP_BASE_URL` | Public app base URL used to build PayPal return and cancel URLs; defaults to `http://localhost:3000`. |
 | `DEMO_RESET_ENABLED` | Optional. Set to `true` only for a controlled demo; otherwise the reset route returns 404. Keep it unset/false on a hosted public demo. |
 

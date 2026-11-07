@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { AiUnavailableError } from "@/lib/ai/client";
+import { getAiClient } from "@/lib/ai/client";
+import { withAiBudget } from "@/lib/ai/budget";
+import { logAiFailure } from "@/lib/ai/diagnostics";
 import { runAgent } from "@/lib/ai/agent";
 import { runScriptedAgent, type ScriptedCase } from "@/lib/ai/scripted-agent";
 import { MandateSchema } from "@/lib/schemas/mandate";
@@ -35,23 +37,32 @@ export async function POST(request: Request) {
       return Response.json({ proposals: [{ ...result, rationale: scripted.rationale }], mode: "scripted" }, { headers: { "Cache-Control": "no-store" } });
     }
 
-    try {
-      const result = await runAgent(mandate, input.request);
-      const proposals = [];
-      for (const item of result.proposals) {
-        const evaluated = await evaluateProposal(store, mandate.mandateId, itemsOf(item.cart), "AGENT_LIVE");
-        proposals.push({ ...evaluated, rationale: item.rationale });
-      }
-      return Response.json({ proposals, error: result.error }, { headers: { "Cache-Control": "no-store" } });
-    } catch (error) {
-      if (!(error instanceof AiUnavailableError)) throw error;
+    const fallbackReview = async () => {
       const fallback = runScriptedAgent("compliant");
       const evaluated = await evaluateProposal(store, mandate.mandateId, itemsOf(fallback.cart), "AGENT_SCRIPTED", unavailableSemanticCheck());
       return Response.json({
         proposals: [{ ...evaluated, rationale: fallback.rationale }],
         mode: "live", fallback: true, error: "AI check unavailable",
       }, { headers: { "Cache-Control": "no-store" } });
+    };
+
+    let result: Awaited<ReturnType<typeof runAgent>>;
+    try {
+      result = await withAiBudget((budget) => runAgent(mandate, input.request, getAiClient(), budget));
+    } catch (error) {
+      logAiFailure(error);
+      return await fallbackReview();
     }
+    if (result.error || result.proposals.length === 0) {
+      logAiFailure(new Error(result.error ?? "The live agent returned no proposals"));
+      return await fallbackReview();
+    }
+
+    const proposals = await Promise.all(result.proposals.map(async (item) => {
+      const evaluated = await evaluateProposal(store, mandate.mandateId, itemsOf(item.cart), "AGENT_LIVE");
+      return { ...evaluated, rationale: item.rationale };
+    }));
+    return Response.json({ proposals }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof z.ZodError) return errorResponse(error.issues[0]?.message ?? "Invalid request", 400);
     return errorResponse(error instanceof Error ? error.message : "Agent run failed", 500);

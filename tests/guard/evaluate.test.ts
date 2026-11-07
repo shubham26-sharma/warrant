@@ -50,6 +50,26 @@ describe("evaluateCart", () => {
     expect(invalidDecision.reasons).toContain("AI check unavailable");
   });
 
+  it("turns a semantic timeout into a persisted-safe REVIEW, never APPROVE", async () => {
+    vi.stubEnv("AI_TIMEOUT_MS", "5");
+    try {
+      const compliant = CartSchema.parse(guardScenarios.find((scenario) => scenario.id === "C01")?.cart);
+      const timeout: SemanticCheck = async (_mandate, _cart, budget) => new Promise((_resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("simulated semantic request timeout")), 1_000);
+        budget?.signal.addEventListener("abort", () => {
+          clearTimeout(timer);
+          reject(new Error("simulated semantic request timeout"));
+        }, { once: true });
+      });
+      const decision = await evaluateCart(mandate, compliant, timeout);
+      expect(decision.verdict).toBe("REVIEW");
+      expect(decision.verdict).not.toBe("APPROVE");
+      expect(decision.reasons).toContain("AI check unavailable");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("blocks inconsistent cart arithmetic without calling the semantic check", async () => {
     const compliant = CartSchema.parse(guardScenarios.find((scenario) => scenario.id === "C01")?.cart);
     const inconsistent = { ...compliant, totalCents: compliant.totalCents + 1 };

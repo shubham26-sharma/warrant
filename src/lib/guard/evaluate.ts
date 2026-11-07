@@ -5,8 +5,9 @@ import { AiResultSchema, DecisionSchema, type AiResult, type Decision, type Verd
 import type { Mandate } from "../schemas/mandate";
 import { combine } from "./combine";
 import { deterministicVerdict, evaluateDeterministicRules } from "./rules";
+import { withAiBudget, type AiBudgetContext } from "../ai/budget";
 
-export type SemanticCheck = (mandate: Mandate, cart: Cart) => Promise<unknown>;
+export type SemanticCheck = (mandate: Mandate, cart: Cart, budget?: AiBudgetContext) => Promise<unknown>;
 
 export class MandateNotConfirmedError extends Error {
   constructor() {
@@ -29,7 +30,8 @@ export async function evaluateCart(mandate: Mandate, cart: Cart, semanticCheck: 
 
   if (deterministic !== "BLOCK") {
     try {
-      const parsedAiResult = AiResultSchema.safeParse(await semanticCheck(mandate, cart));
+      const rawAiResult = await withAiBudget((budget) => semanticCheck(mandate, cart, budget));
+      const parsedAiResult = AiResultSchema.safeParse(rawAiResult);
       aiResult = parsedAiResult.success ? parsedAiResult.data : unavailableAiResult();
     } catch {
       aiResult = unavailableAiResult();

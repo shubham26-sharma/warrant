@@ -1,4 +1,6 @@
 import { GoogleGenAI, type Interactions } from "@google/genai";
+import { getAiTimeoutMs, type AiBudgetContext } from "./budget";
+import { logAiFailure } from "./diagnostics";
 
 export interface JsonSchema {
   type: string;
@@ -26,8 +28,12 @@ export interface ToolLoopOptions {
   user: string;
   tools: readonly AiToolDefinition[];
   maxSteps: number;
+  signal?: AbortSignal;
+  timeoutMs?: number;
   executeTool(name: string, argumentsValue: unknown): Promise<unknown>;
 }
+
+export type AiRequestOptions = Pick<AiBudgetContext, "signal" | "timeoutMs">;
 
 export interface ToolLoopResult {
   toolCalls: ToolCallRecord[];
@@ -37,7 +43,7 @@ export interface ToolLoopResult {
 
 export interface AiClient {
   getModelName(): string;
-  generateStructured<T>(schema: StructuredOutputSchema<T>, system: string, user: string): Promise<T>;
+  generateStructured<T>(schema: StructuredOutputSchema<T>, system: string, user: string, options?: AiRequestOptions): Promise<T>;
   runToolCallingLoop(options: ToolLoopOptions): Promise<ToolLoopResult>;
 }
 
@@ -48,8 +54,6 @@ export class AiUnavailableError extends Error {
   }
 }
 
-const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
-const MAX_REQUEST_TIMEOUT_MS = 120_000;
 const MAX_RETRIES = 1;
 
 type GeminiRuntime = { client: GoogleGenAI; model: string };
@@ -90,49 +94,18 @@ function isTransient(error: unknown): boolean {
     ["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ECONNREFUSED"].includes(code);
 }
 
-function getRequestTimeoutMs(): number {
-  const configured = process.env.AI_TIMEOUT_MS?.trim();
-  if (!configured) return DEFAULT_REQUEST_TIMEOUT_MS;
-  if (!/^\d+$/.test(configured)) {
-    throw new AiUnavailableError("AI_TIMEOUT_MS must be an integer between 1 and 120000");
-  }
-  const timeoutMs = Number(configured);
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > MAX_REQUEST_TIMEOUT_MS) {
-    throw new AiUnavailableError("AI_TIMEOUT_MS must be an integer between 1 and 120000");
-  }
-  return timeoutMs;
-}
-
-function errorDetails(error: unknown): { type: string; message: string } {
-  const value = error && typeof error === "object" ? error as { name?: unknown; message?: unknown } : {};
-  const type = typeof value.name === "string" ? value.name.slice(0, 100) : "UnknownError";
-  let message = typeof value.message === "string" ? value.message : String(error);
-  const apiKey = process.env.GEMINI_API_KEY?.trim();
-  if (apiKey) message = message.split(apiKey).join("[REDACTED]");
-  message = message
-    .replace(/([?&]key=)[^&\s"']+/gi, "$1[REDACTED]")
-    .replace(/\bBearer\s+[^\s,;"']+/gi, "Bearer [REDACTED]")
-    .replace(/[\r\n\t]+/g, " ")
-    .slice(0, 500);
-  return { type, message };
-}
-
-function logAiFailure(error: unknown): void {
-  const details = errorDetails(error);
-  console.warn(`[Gemini] ${details.type}: ${details.message}`);
-}
-
 function unavailable(message: string, cause: unknown): AiUnavailableError {
   logAiFailure(cause);
   return new AiUnavailableError(message, { cause });
 }
 
-async function withProviderRetry<T>(operation: () => Promise<T>): Promise<T> {
+async function withProviderRetry<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   for (let attempt = 0; ; attempt += 1) {
     try {
+      if (signal?.aborted) throw new Error("AI request aborted by its total time budget");
       return await operation();
     } catch (error) {
-      if (attempt < MAX_RETRIES && isTransient(error)) {
+      if (attempt < MAX_RETRIES && !signal?.aborted && isTransient(error)) {
         await new Promise((resolve) => setTimeout(resolve, 100));
         continue;
       }
@@ -156,7 +129,7 @@ export function getAiClient(): AiClient {
       if (!model) throw new AiUnavailableError("GEMINI_MODEL must be configured");
       return model;
     },
-    async generateStructured<T>(schema: StructuredOutputSchema<T>, system: string, user: string): Promise<T> {
+    async generateStructured<T>(schema: StructuredOutputSchema<T>, system: string, user: string, options?: AiRequestOptions): Promise<T> {
       const { client, model } = createGeminiRuntime();
       const interaction = await withProviderRetry(() => client.interactions.create({
         model,
@@ -169,7 +142,11 @@ export function getAiClient(): AiClient {
           mime_type: "application/json",
           schema: schema.jsonSchema,
         },
-      }, { timeout_ms: getRequestTimeoutMs(), maxRetries: 0 }));
+      }, {
+        timeout_ms: Math.min(getAiTimeoutMs(), options?.timeoutMs ?? getAiTimeoutMs()),
+        ...(options?.signal ? { fetch_options: { signal: options.signal } } : {}),
+        maxRetries: 0,
+      }), options?.signal);
 
       if (typeof interaction.output_text !== "string") {
         throw unavailable("Gemini returned no structured text", new Error("Provider response did not include structured text"));
@@ -213,7 +190,11 @@ export function getAiClient(): AiClient {
           system_instruction: options.system,
           generation_config: { temperature: 0.1 },
           tools: providerTools,
-        }, { timeout_ms: getRequestTimeoutMs(), maxRetries: 0 }));
+        }, {
+          timeout_ms: Math.min(getAiTimeoutMs(), options.timeoutMs ?? getAiTimeoutMs()),
+          ...(options.signal ? { fetch_options: { signal: options.signal } } : {}),
+          maxRetries: 0,
+        }), options.signal);
         history.push(...interaction.steps);
 
         const calls = interaction.steps.filter((step): step is Interactions.FunctionCallStep => step.type === "function_call");
