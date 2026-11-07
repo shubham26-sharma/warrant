@@ -6,6 +6,8 @@ Warrant is a buyer-side authorization gateway for AI-proposed purchases. The age
 
 Use Node.js and npm. Install dependencies with `npm install`, then start the app with `npm run dev`.
 
+The Next.js App Router is in `src/app`, with application libraries under `src/lib`.
+
 Copy `.env.example` to `.env.local` and fill credentials only when the relevant phase needs them. Never commit `.env.local`.
 
 ## Phase 1 commands
