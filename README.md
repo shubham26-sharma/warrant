@@ -22,4 +22,4 @@ The Prisma schema is defined in `prisma/schema.prisma`. No database migration is
 
 ## Current implementation status
 
-The library layer now includes the fictional Warrant Demo Store catalog, server-priced cart construction, prompt-injection markers, deterministic mandate checks, and verdict combination. The Phase 2 guard has no network or model calls; callers inject a semantic-check function, and the deterministic rules remain the decision floor. The AI-backed agent, application checkout flow, and PayPal gateway are not implemented yet.
+The library layer includes the fictional Warrant Demo Store catalog, server-priced cart construction, prompt-injection markers, deterministic mandate checks, and verdict combination. The AI layer uses Google's official `@google/genai` SDK with the Gemini Interactions API. Set `GEMINI_API_KEY` and choose a `GEMINI_MODEL` that supports structured output and function calling in `.env.local` before running the live compile script. Model-facing data is validated again with Zod, and the deterministic guard remains the decision floor. The application checkout flow and PayPal gateway are not implemented yet.

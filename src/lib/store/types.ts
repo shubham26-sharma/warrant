@@ -18,8 +18,13 @@ export type PayPalOrderRecord = {
 export type AuditEventRecord = {
   id: number; type: string; payload: unknown; prevHash: string; hash: string; createdAt: string;
 };
+export type SemanticCheckCacheRecord = {
+  promptVersion: string; modelName: string; mandateHash: string; cartHash: string; result: AiResult;
+};
 
 export interface Store {
+  getSemanticCheckCache(promptVersion: string, modelName: string, mandateHash: string, cartHash: string): Promise<AiResult | null>;
+  setSemanticCheckCache(promptVersion: string, modelName: string, mandateHash: string, cartHash: string, result: AiResult): Promise<void>;
   createMandate(record: MandateRecord): Promise<MandateRecord>;
   getMandate(id: string): Promise<MandateRecord | null>;
   listMandatesByFamily(familyId: string): Promise<MandateRecord[]>;

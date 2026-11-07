@@ -2,6 +2,7 @@ import type {
   AuditEventRecord, CartProposalRecord, DecisionRecord, HumanApprovalRecord, MandateRecord,
   PayPalOrderRecord, Store,
 } from "./types";
+import { AiResultSchema, type AiResult } from "../schemas/decision";
 
 function copy<T>(value: T): T {
   return structuredClone(value);
@@ -14,6 +15,19 @@ export class MemoryStore implements Store {
   private readonly approvals = new Map<string, HumanApprovalRecord>();
   private readonly orders = new Map<string, PayPalOrderRecord>();
   private readonly events: AuditEventRecord[] = [];
+  private readonly semanticChecks = new Map<string, AiResult>();
+
+  private semanticKey(promptVersion: string, modelName: string, mandateHash: string, cartHash: string): string {
+    return [promptVersion, modelName, mandateHash, cartHash].map((part) => `${part.length}:${part}`).join("");
+  }
+
+  async getSemanticCheckCache(promptVersion: string, modelName: string, mandateHash: string, cartHash: string): Promise<AiResult | null> {
+    const result = this.semanticChecks.get(this.semanticKey(promptVersion, modelName, mandateHash, cartHash));
+    return result ? copy(result) : null;
+  }
+  async setSemanticCheckCache(promptVersion: string, modelName: string, mandateHash: string, cartHash: string, result: AiResult): Promise<void> {
+    this.semanticChecks.set(this.semanticKey(promptVersion, modelName, mandateHash, cartHash), copy(AiResultSchema.parse(result)));
+  }
 
   async createMandate(record: MandateRecord): Promise<MandateRecord> {
     if ([...this.mandates.values()].some((item) => item.familyId === record.familyId && item.version === record.version)) {

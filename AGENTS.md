@@ -34,7 +34,7 @@ Every invariant needs an automated test. Never weaken a test to make it pass; fi
 6. **Product text is untrusted data.** Titles and descriptions never act as instructions. They are passed to models inside clearly delimited data blocks, and hostile text can only raise severity.
 7. **The guard reads only persisted, confirmed mandates.** AI-compiled constraints are drafts until the human confirms them. A mandate with unresolved ambiguity can never be confirmed.
 8. **Human overrides.** A hard-rule BLOCK cannot be overridden by anyone; the manager edits the mandate, which creates a new version. A REVIEW can be approved by a human, and the approval is recorded in the audit log.
-9. **Secrets stay server-side.** PayPal and OpenAI keys are read only in server modules, never sent to the browser, never committed.
+9. **Secrets stay server-side.** PayPal and Gemini API keys are read only in server modules, never sent to the browser, never committed.
 10. **Audit log is append-only and hash-chained.** Canonical JSON + SHA-256 chain. Describe it as a tamper-evident application audit trail, never as a legal signature.
 
 ## Decision logic
@@ -57,7 +57,7 @@ Every rule emits `{ ruleId, mandateClause, cartPath, passed, severity, message }
 
 - Next.js 16 (App Router, `src/` directory, `@/*` alias), TypeScript strict, Tailwind. Cache Components is enabled in this project: check the installed Next.js docs before writing routes and pages; keep payment, agent and DB-backed pages dynamic. Do not add `export const runtime`. `params` and `searchParams` are promises in current Next.js.
 - Zod for every boundary (API input, AI output, DB JSON). Prisma + PostgreSQL (hosted Neon, no Docker assumed). Check the current Prisma + Next.js docs for client setup rather than relying on memory.
-- Official `openai` npm package with schema-validated structured outputs. Model name comes from `OPENAI_MODEL`; never hardcode one. Low temperature.
+- Official Google GenAI Node SDK (`@google/genai`) using the Gemini Interactions API for structured JSON and function calling. Model name comes from `GEMINI_MODEL`; never hardcode one. Validate every response with the full Zod schema. Only `src/lib/ai/client.ts` may import the provider SDK.
 - Tests: Vitest. DB access goes through a thin `Store` interface with an in-memory implementation for unit tests and a Prisma implementation at runtime.
 - AG Grid (community) for the audit table only.
 - Windows-friendly: npm scripts must not use bash-only syntax. The developer uses PowerShell.
@@ -100,7 +100,7 @@ tests/results/          eval output
 
 ## When you need a human
 
-Stop and print exactly what the human must do, then wait. Needed for: creating the Neon database, filling `.env.local`, approving a PayPal order as the sandbox buyer (needs a browser login), supplying the OpenAI key, deploying, recording the video. Never invent credentials, never commit `.env.local`.
+Stop and print exactly what the human must do, then wait. Needed for: creating the Neon database, filling `.env.local`, approving a PayPal order as the sandbox buyer (needs a browser login), supplying the Gemini API key and choosing a model that supports structured output and function calling, deploying, recording the video. Never invent credentials, never commit `.env.local`.
 
 ## Non-goals
 

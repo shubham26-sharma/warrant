@@ -11,17 +11,18 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:scenarios": "tsx tests/validate-scenarios.ts",
+    "try:compile": "tsx scripts/try-compile.ts",
     "eval": "node scripts/not-implemented.js eval",
     "db:migrate": "node scripts/not-implemented.js db:migrate",
     "db:seed": "node scripts/not-implemented.js db:seed",
     "paypal:smoke": "node scripts/not-implemented.js paypal:smoke"
   },
   "dependencies": {
+    "@google/genai": "^3.0.0",
     "@prisma/client": "^7.10.1",
     "ag-grid-community": "^36.3.0",
     "ag-grid-react": "^36.3.0",
     "next": "16.4.5",
-    "openai": "^7.53.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "^4.6.7"
