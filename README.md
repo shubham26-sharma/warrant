@@ -11,7 +11,7 @@ Copy `.env.example` to `.env.local` and fill credentials only when the relevant 
 ## Phase 1 commands
 
 - `npm run lint` checks formatting and lint rules.
-- `npm run typecheck` runs TypeScript without emitting files.
+- `npm run typecheck` generates Next.js route types, then runs TypeScript without emitting files.
 - `npm test` runs unit tests.
 - `npm run test:scenarios` validates the provided 24 scenario fixtures.
 - `npm run eval`, `npm run db:migrate`, `npm run db:seed`, and `npm run paypal:smoke` are placeholders until their implementation phases.
