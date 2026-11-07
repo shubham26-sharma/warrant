@@ -35,6 +35,7 @@ model Mandate {
   proposals    CartProposal[]
 
   @@unique([familyId, version])
+  @@index([familyId, status, version])
 }
 
 model CartProposal {
@@ -89,4 +90,16 @@ model AuditEvent {
   prevHash  String
   hash      String
   createdAt DateTime @default(now())
+}
+
+model SemanticCache {
+  id            String   @id @default(uuid())
+  promptVersion String
+  modelName     String
+  mandateHash   String
+  cartHash      String
+  result        Json
+  createdAt     DateTime @default(now())
+
+  @@unique([promptVersion, modelName, mandateHash, cartHash])
 }

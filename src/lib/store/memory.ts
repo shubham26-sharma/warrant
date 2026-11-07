@@ -43,6 +43,9 @@ export class MemoryStore implements Store {
   async listMandatesByFamily(familyId: string): Promise<MandateRecord[]> {
     return copy([...this.mandates.values()].filter((item) => item.familyId === familyId).sort((a, b) => a.version - b.version));
   }
+  async listMandates(): Promise<MandateRecord[]> {
+    return copy([...this.mandates.values()].sort((a, b) => a.familyId.localeCompare(b.familyId) || a.version - b.version));
+  }
   async createCartProposal(record: CartProposalRecord): Promise<CartProposalRecord> {
     if (!this.mandates.has(record.mandateId)) throw new Error("Proposal mandate does not exist");
     if (this.proposals.has(record.id)) throw new Error("Proposal id must be unique");
@@ -53,6 +56,7 @@ export class MemoryStore implements Store {
     const value = this.proposals.get(id);
     return value ? copy(value) : null;
   }
+  async listCartProposals(): Promise<CartProposalRecord[]> { return copy([...this.proposals.values()]); }
   async createDecision(record: DecisionRecord): Promise<DecisionRecord> {
     if (!this.proposals.has(record.cartProposalId)) throw new Error("Decision proposal does not exist");
     if (this.decisions.has(record.id)) throw new Error("Decision id must be unique");
@@ -63,6 +67,7 @@ export class MemoryStore implements Store {
     const value = this.decisions.get(id);
     return value ? copy(value) : null;
   }
+  async listDecisions(): Promise<DecisionRecord[]> { return copy([...this.decisions.values()]); }
   async createHumanApproval(record: HumanApprovalRecord): Promise<HumanApprovalRecord> {
     if (!this.decisions.has(record.decisionId)) throw new Error("Approval decision does not exist");
     if ([...this.approvals.values()].some((item) => item.decisionId === record.decisionId)) throw new Error("Decision already has an approval");
@@ -89,6 +94,10 @@ export class MemoryStore implements Store {
     const value = [...this.orders.values()].find((item) => item.decisionId === decisionId);
     return value ? copy(value) : null;
   }
+  async getPayPalOrderByPayPalId(paypalOrderId: string): Promise<PayPalOrderRecord | null> {
+    const value = [...this.orders.values()].find((item) => item.paypalOrderId === paypalOrderId);
+    return value ? copy(value) : null;
+  }
   async updatePayPalOrder(record: PayPalOrderRecord): Promise<PayPalOrderRecord> {
     if (!this.orders.has(record.id)) throw new Error("PayPal order does not exist");
     this.orders.set(record.id, copy(record));
@@ -101,5 +110,9 @@ export class MemoryStore implements Store {
   }
   async listAuditEvents(): Promise<AuditEventRecord[]> {
     return copy(this.events);
+  }
+  async clearDemoData(): Promise<void> {
+    this.mandates.clear(); this.proposals.clear(); this.decisions.clear(); this.approvals.clear(); this.orders.clear();
+    this.events.splice(0); this.semanticChecks.clear();
   }
 }

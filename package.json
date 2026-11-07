@@ -13,16 +13,21 @@
     "test:scenarios": "tsx tests/validate-scenarios.ts",
     "try:compile": "tsx scripts/try-compile.ts",
     "eval": "node scripts/not-implemented.js eval",
-    "db:migrate": "node scripts/not-implemented.js db:migrate",
-    "db:seed": "node scripts/not-implemented.js db:seed",
-    "paypal:smoke": "node scripts/not-implemented.js paypal:smoke"
+    "paypal:smoke": "tsx scripts/paypal-smoke.ts",
+    "db:migrate": "prisma migrate deploy",
+    "db:seed": "tsx scripts/db-seed.ts",
+    "demo:warmup": "tsx scripts/demo-warmup.ts",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@google/genai": "^3.0.0",
+    "@prisma/adapter-pg": "^7.10.1",
     "@prisma/client": "^7.10.1",
     "ag-grid-community": "^36.3.0",
     "ag-grid-react": "^36.3.0",
+    "dotenv": "^18.0.9",
     "next": "16.4.5",
+    "pg": "^8.23.1",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "^4.6.7"
@@ -30,6 +35,7 @@
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^4.1.12",

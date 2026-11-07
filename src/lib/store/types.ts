@@ -28,16 +28,21 @@ export interface Store {
   createMandate(record: MandateRecord): Promise<MandateRecord>;
   getMandate(id: string): Promise<MandateRecord | null>;
   listMandatesByFamily(familyId: string): Promise<MandateRecord[]>;
+  listMandates(): Promise<MandateRecord[]>;
   createCartProposal(record: CartProposalRecord): Promise<CartProposalRecord>;
   getCartProposal(id: string): Promise<CartProposalRecord | null>;
+  listCartProposals(): Promise<CartProposalRecord[]>;
   createDecision(record: DecisionRecord): Promise<DecisionRecord>;
   getDecision(id: string): Promise<DecisionRecord | null>;
+  listDecisions(): Promise<DecisionRecord[]>;
   createHumanApproval(record: HumanApprovalRecord): Promise<HumanApprovalRecord>;
   getHumanApprovalByDecision(decisionId: string): Promise<HumanApprovalRecord | null>;
   createPayPalOrder(record: PayPalOrderRecord): Promise<PayPalOrderRecord>;
   getPayPalOrder(id: string): Promise<PayPalOrderRecord | null>;
   getPayPalOrderByDecision(decisionId: string): Promise<PayPalOrderRecord | null>;
+  getPayPalOrderByPayPalId(paypalOrderId: string): Promise<PayPalOrderRecord | null>;
   updatePayPalOrder(record: PayPalOrderRecord): Promise<PayPalOrderRecord>;
   appendAuditEvent(record: Omit<AuditEventRecord, "id">): Promise<AuditEventRecord>;
   listAuditEvents(): Promise<AuditEventRecord[]>;
+  clearDemoData(): Promise<void>;
 }
