@@ -12,7 +12,7 @@
     "test": "vitest run",
     "test:scenarios": "tsx tests/validate-scenarios.ts",
     "try:compile": "tsx scripts/try-compile.ts",
-    "eval": "node scripts/not-implemented.js eval",
+    "eval": "tsx scripts/eval.ts",
     "paypal:smoke": "tsx scripts/paypal-smoke.ts",
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx scripts/db-seed.ts",

@@ -1,71 +1,120 @@
 # Warrant
 
-Warrant is a buyer-side authorization gateway for AI-proposed purchases. A manager confirms a purchase mandate, an agent proposes a cart from a server-priced catalog, and Warrant evaluates it before a human can continue to PayPal Sandbox. The merchant is fictional and all checkout stays sandbox-only.
+Warrant is a buyer-side authorization gateway for AI-proposed purchases. A manager confirms a mandate, an agent proposes catalog products and quantities, and the server checks the cart before offering a human-present PayPal Sandbox checkout. The merchant is fictional and labeled as a demo store. Warrant complements agent payment protocols; its mandate format is AP2-inspired and is not AP2-compliant.
 
-## Run locally
+## Judge quick start
+
+### Hosted demo
+
+- Hosted URL: **TODO: add the deployed URL after deployment.**
+- Video: **TODO: add a short demo video after recording.**
+- Sandbox buyer test credentials: **TODO: share credentials through the hackathon's approved channel.**
+
+### Run locally
 
 Requirements: Node.js 20.19+ and npm.
 
-1. Copy `.env.example` to `.env.local` and set the database and PayPal Sandbox credentials. Set `GEMINI_API_KEY` and `GEMINI_MODEL` only if you want to run the live model; choose a model that supports structured output and function calling.
-2. For Neon, use the pooled connection in `DATABASE_URL` for runtime and the direct connection in `DIRECT_URL` for Prisma migrations. Both remain server-side.
-3. Run `npm install`, `npm run db:migrate`, `npm run db:seed`, then `npm run dev`.
-4. Open `http://localhost:3000`. Use the seeded sample mandate or create and confirm another one. The scripted agent gives repeatable proposals; the live agent uses Gemini.
-5. `npm run demo:warmup` uses the scripted compliant proposal and the live semantic checker to populate the persistent cache. It needs a working Gemini key/model.
+1. Copy `.env.example` to `.env.local` and set the server-side values below.
+2. Run `npm install`, `npm run db:migrate`, and `npm run db:seed`.
+3. Run `npm run dev` and open `http://localhost:3000`.
+4. Create a mandate or use the seeded confirmed sample. Resolve every ambiguity before confirming a mandate.
+5. Run the scripted agent to see repeatable proposals. Only an APPROVE decision, or a REVIEW decision with a recorded manager approval, can proceed to checkout.
+6. PayPal Sandbox requires the buyer to approve each order in a browser. No autonomous or real-money payments are supported.
 
-If the AI is unavailable, the guard fails closed to REVIEW with the reason “AI check unavailable”; the page remains usable. PayPal Sandbox still requires the buyer to approve each order in a browser.
+Screenshots: **TODO: capture the walkthrough pages after the human browser walkthrough.**
 
-## Available commands
+## Configuration
 
-- `npm run dev`, `npm run build`, `npm start`
-- `npm run lint`, `npm run typecheck`, `npm test`, `npm run test:scenarios`
-- `npm run db:migrate`, `npm run db:seed`, `npm run demo:warmup`
-- `npm run paypal:smoke` creates a $10 Sandbox order using a test-only authorization helper in the script; it prints the approval URL.
-- `npm run eval` is not implemented yet.
+Copy these variables into the deployment host or `.env.local`; never commit credentials.
 
-The Prisma CLI reads `.env.local`; migrations prefer `DIRECT_URL` and fall back to `DATABASE_URL`. Generated Prisma client files live under `src/generated/prisma` and are ignored by Git.
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | PostgreSQL runtime connection; Neon pooled URL is suitable. |
+| `DIRECT_URL` | Direct PostgreSQL URL for Prisma migrations; falls back to `DATABASE_URL`. |
+| `AUDIT_HMAC_SECRET` | Server-side audit-chain HMAC secret. |
+| `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | PayPal Sandbox server credentials. |
+| `GEMINI_API_KEY` / `GEMINI_MODEL` | Gemini API credentials and a model supporting the used structured output and function-calling features. |
+| `AI_TIMEOUT_MS` | Gemini request timeout in milliseconds; defaults to 30000 and accepts 1–120000. |
+| `APP_BASE_URL` | Public app base URL used to build PayPal return and cancel URLs; defaults to `http://localhost:3000`. |
+| `DEMO_RESET_ENABLED` | Optional. Set to `true` only for a controlled demo; otherwise the reset route returns 404. Keep it unset/false on a hosted public demo. |
+
+All payment and Gemini credentials are server-side. Only variables explicitly named `NEXT_PUBLIC_*` are exposed by Next.js to browser bundles; this project does not prefix secrets that way.
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start the development server. |
+| `npm run build` | Build the production app. |
+| `npm start` | Run the production build. |
+| `npm run lint` | Run ESLint. |
+| `npm run typecheck` | Generate Next.js route types and run TypeScript. |
+| `npm test` | Run Vitest. The Prisma store contract is opt-in with `RUN_PRISMA_STORE_TESTS=1` and a configured database; use a dedicated test database when possible. |
+| `npm run test:scenarios` | Validate the 24 immutable fixture records and their shape. |
+| `npm run eval -- --mode baseline` | Run the offline development baseline: deterministic guard plus an always-APPROVE semantic stub. Compiler cases are skipped because this mode makes no Gemini calls. |
+| `npm run eval -- --mode ai` | Run development guard and compiler cases against Gemini. Requires `GEMINI_API_KEY` and `GEMINI_MODEL`. |
+| `npm run eval -- --mode ai --heldout` | Include held-out cases for final reporting; do not use these cases for tuning. |
+| `npm run demo:warmup` | Run the real semantic check on the seeded sample and populate the database cache. Requires working Gemini connectivity. |
+| `npm run paypal:smoke` | Create a $10 PayPal Sandbox smoke-test order and print its approval URL. This helper does not exercise Warrant checkout or capture. |
+| `npm run db:migrate` / `npm run db:seed` | Apply migrations / safely create the sample confirmed mandate. |
+
+The installed `postinstall` script runs `prisma generate`, including during deployment dependency installation.
 
 ## Architecture
 
 ```text
-Human-confirmed mandate
+Manager-confirmed mandate
           │
 AI agent ─┴─ proposes product ids and quantities only
           │
 Server catalog ─ builds a cart with trusted prices
           │
-Deterministic checks ─ BLOCK / REVIEW / continue
+Deterministic rules ─ BLOCK / REVIEW / continue
           │
-Gemini semantic check ─ may only tighten the verdict
+Gemini semantic check ─ may only tighten the result
           │
 Persisted decision + append-only hash-chained audit
           │
-Gateway re-verifies decision, cart and latest mandate version
+Gateway re-verifies decision, mandate version and cart
           │
-Human approves order in PayPal Sandbox ─ capture re-verifies snapshot
+Human approves each PayPal Sandbox order ─ capture re-verifies snapshot
 ```
 
-Only `src/lib/ai/client.ts` imports the Gemini SDK. The agent has exactly two tools: `get_mandate` and `propose_cart`. The latter accepts product ids and quantities; prices and merchant data come from the server catalog. Semantic results are stored by prompt version, model, mandate hash, and cart hash after Zod validation.
+The app lives under `src/app`; server logic is under `src/lib`. Only `src/lib/ai/client.ts` imports the Gemini SDK. The agent has exactly two tools, `get_mandate` and `propose_cart`. It cannot price a cart or create/capture orders. The server prices catalog products, evaluates the proposal, and only the gateway can authorize PayPal operations.
 
-## Safety boundaries
+## Safety properties and evidence
 
-- Money stays in integer cents until `src/lib/paypal.ts` formats a PayPal decimal amount.
-- A deterministic BLOCK cannot be overridden. A REVIEW needs a manager note before checkout. AI failure or invalid output means REVIEW.
-- The agent cannot import PayPal, the gateway, storage, or Prisma and cannot create or capture orders.
-- Checkout creation requires a gateway-minted authorization that rechecks the stored decision, cart hash, confirmed mandate hash, latest mandate version, and prior order state.
-- Capture fetches PayPal’s order and verifies status, amount, and currency against the saved snapshot. Requests use deterministic idempotency ids.
-- Product titles and descriptions are untrusted data. No background or autonomous payments are supported.
-- The audit trail is tamper-evident application data, not a legal signature.
-- The 24 scenario fixtures are a small demonstration set, not proof of real-world safety. Model output can vary. The mandate format is AP2-inspired and is not AP2-compliant.
+- The agent cannot reach payment or storage write paths: static import and tool-surface checks in `tests/security/`.
+- AI can only tighten a deterministic result; provider failure or invalid output fails closed to REVIEW: guard and AI-layer cases in `tests/guard/` and `tests/ai/`.
+- Orders require a reverified gateway authorization; captures recheck PayPal status, amount and currency: `tests/security/gateway.test.ts` and `tests/security/paypal.test.ts`.
+- Money uses integer cents until PayPal formatting: `tests/money.test.ts`.
+- Product text is treated as untrusted data and marker behavior is covered by `tests/guard/injection-markers.test.ts`.
+- Unconfirmed or ambiguous mandates cannot be confirmed: `tests/schemas.test.ts`, `tests/ai/phase3.test.ts`, and `tests/security/routes.test.ts`.
+- Human REVIEW approvals are recorded; BLOCK cannot be overridden: `tests/security/gateway.test.ts`.
+- Secrets stay server-side: static import checks in `tests/security/` and environment variables are read only by server modules.
+- The audit chain uses canonical JSON and SHA-256: `tests/hash.test.ts` and audit/gateway cases in `tests/security/gateway.test.ts`.
+- Scenario fixtures are validated by `tests/validate-scenarios.ts`; expected outcomes in `tests/fixtures/scenarios.json` are not tuned or edited by evaluation.
 
-## Demo data and privacy
+## Evaluation
 
-The sample mandate authorizes up to five packs of A4 recycled paper for at most $60 total and three delivery days from the labeled Warrant Demo Store demo merchant. Product data in this repository is fictional. Never commit `.env.local`; Gemini and PayPal credentials are server-side only.
+The offline baseline was run on 2026-11-07 in development mode. It evaluated 13 guard scenarios: 2 correct approvals, 8 correct blocks, 3 correct reviews, 0 false approvals, 0 false blocks, and 0 guard mismatches. Three development compiler cases (A01–A03) were explicitly skipped because the baseline must not call Gemini. Held-out cases were not run. Full per-case output is in [`tests/results/RESULTS.md`](tests/results/RESULTS.md) and [`tests/results/latest.json`](tests/results/latest.json).
 
-`POST /api/demo/reset` is disabled unless `DEMO_RESET_ENABLED=true`. Enabling it clears demo records and restores the sample mandate.
+The fixture set has 24 cases (16 development and 8 held-out). These examples are a small demonstration set, not statistical evidence or proof of real-world safety. Gemini outputs can vary.
 
-## Human walkthrough still required
+## Deployment preparation
 
-- Configure a reachable PostgreSQL database and run the migrations/seed.
-- Configure valid Gemini credentials/model to use live AI and run warmup.
-- Use the PayPal Sandbox buyer account to approve a Sandbox order and confirm the capture in the Sandbox business account.
-- Deploy, record a demo video, and add screenshots before submission.
+- Choose Vercel or Render and configure the variables in the table above on the host.
+- Set `APP_BASE_URL` to the deployed public origin so PayPal return and cancel URLs point to the deployment.
+- Keep `DEMO_RESET_ENABLED` unset or `false` on a public site.
+- Run migrations against the direct database URL before serving traffic; seed the sample mandate as needed.
+- `GET /api/health` checks database connectivity and returns only a generic health status, never configuration values.
+- Rate limiting is in-memory and applies to model-backed routes; it is not a distributed limiter across multiple instances.
+
+## Current limitations and human steps
+
+- Checkout is human-present and PayPal Sandbox only; the manager/buyer approves every order.
+- Warrant Demo Store is fictional; no real merchant inventory or fulfillment is connected.
+- Mandates are AP2-inspired, not AP2-compliant. This project does not claim legal signatures or autonomous payment capability.
+- The small 24-case scenario set cannot prove safety; model results vary.
+- A human must deploy the app, configure host environment variables, complete a Sandbox buyer walkthrough, provide the hosted URL and buyer test instructions, and record the demo video.
+- Walkthrough screenshots are not included yet; capture them after completing the human walkthrough.
