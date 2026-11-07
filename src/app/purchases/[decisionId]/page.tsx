@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
+import { Suspense } from "react";
 import { PurchaseActions } from "@/app/components/purchase-actions";
+import { PageFallback } from "@/app/components/page-fallback";
 import { StatusBadge } from "@/app/components/status-badge";
 import { getStore } from "@/lib/runtime";
 import { formatUsd } from "@/lib/money";
@@ -19,7 +21,11 @@ function cartValue(path: string, cart: Cart): string {
   return cart.lineItems.map((item) => `${item.title} · ${item.quantity} units`).join("; ");
 }
 
-export default async function PurchasePage({ params }: PageProps<"/purchases/[decisionId]">) {
+export default function PurchasePage(props: PageProps<"/purchases/[decisionId]">) {
+  return <Suspense fallback={<PageFallback label="Loading saved purchase decision…" />}><PurchaseContent {...props} /></Suspense>;
+}
+
+async function PurchaseContent({ params }: PageProps<"/purchases/[decisionId]">) {
   await connection();
   const { decisionId } = await params;
   const store = getStore();

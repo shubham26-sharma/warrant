@@ -1,8 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { connection } from "next/server";
+import { Suspense } from "react";
+import { PageFallback } from "@/app/components/page-fallback";
 
-export default async function EvaluationPage() {
+export default function EvaluationPage() {
+  return <Suspense fallback={<PageFallback label="Loading evaluation results…" />}><EvaluationContent /></Suspense>;
+}
+
+async function EvaluationContent() {
   await connection();
   let result: string | null = null;
   try { result = await readFile(join(process.cwd(), "tests", "results", "latest.json"), "utf8"); }

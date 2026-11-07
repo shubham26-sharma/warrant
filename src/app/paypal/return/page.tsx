@@ -1,7 +1,13 @@
 import { connection } from "next/server";
+import { Suspense } from "react";
 import { PayPalReturnClient } from "@/app/components/paypal-return-client";
+import { PageFallback } from "@/app/components/page-fallback";
 
-export default async function PayPalReturnPage({ searchParams }: PageProps<"/paypal/return">) {
+export default function PayPalReturnPage(props: PageProps<"/paypal/return">) {
+  return <Suspense fallback={<PageFallback label="Loading PayPal return status…" />}><PayPalReturnContent {...props} /></Suspense>;
+}
+
+async function PayPalReturnContent({ searchParams }: PageProps<"/paypal/return">) {
   await connection();
   const params = await searchParams;
   const token = params.token;

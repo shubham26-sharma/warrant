@@ -1,9 +1,15 @@
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
+import { Suspense } from "react";
 import { MandateBuilder } from "@/app/components/mandate-builder";
+import { PageFallback } from "@/app/components/page-fallback";
 import { getStore } from "@/lib/runtime";
 
-export default async function NewMandatePage({ searchParams }: PageProps<"/mandates/new">) {
+export default function NewMandatePage(props: PageProps<"/mandates/new">) {
+  return <Suspense fallback={<PageFallback label="Loading mandate editor…" />}><NewMandateContent {...props} /></Suspense>;
+}
+
+async function NewMandateContent({ searchParams }: PageProps<"/mandates/new">) {
   await connection();
   const { edit } = await searchParams;
   const editId = Array.isArray(edit) ? edit[0] : edit;
