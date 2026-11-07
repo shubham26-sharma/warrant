@@ -17,3 +17,7 @@ Copy `.env.example` to `.env.local` and fill credentials only when the relevant 
 - `npm run eval`, `npm run db:migrate`, `npm run db:seed`, and `npm run paypal:smoke` are placeholders until their implementation phases.
 
 The Prisma schema is defined in `prisma/schema.prisma`. No database migration is run in Phase 1.
+
+## Current implementation status
+
+The library layer now includes the fictional Warrant Demo Store catalog, server-priced cart construction, prompt-injection markers, deterministic mandate checks, and verdict combination. The Phase 2 guard has no network or model calls; callers inject a semantic-check function, and the deterministic rules remain the decision floor. The AI-backed agent, application checkout flow, and PayPal gateway are not implemented yet.

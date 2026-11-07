@@ -1,0 +1,55 @@
+import { randomUUID } from "node:crypto";
+import { canonicalJson, sha256Hex } from "../hash";
+import type { Cart } from "../schemas/cart";
+import { AiResultSchema, DecisionSchema, type AiResult, type Decision, type Verdict } from "../schemas/decision";
+import type { Mandate } from "../schemas/mandate";
+import { combine } from "./combine";
+import { deterministicVerdict, evaluateDeterministicRules } from "./rules";
+
+export type SemanticCheck = (mandate: Mandate, cart: Cart) => Promise<unknown>;
+
+export class MandateNotConfirmedError extends Error {
+  constructor() {
+    super("The mandate must be confirmed before a cart can be evaluated");
+    this.name = "MandateNotConfirmedError";
+  }
+}
+
+function unavailableAiResult(): AiResult {
+  return { verdict: "REVIEW", reasons: ["AI check unavailable"] };
+}
+
+export async function evaluateCart(mandate: Mandate, cart: Cart, semanticCheck: SemanticCheck): Promise<Decision> {
+  if (mandate.status !== "CONFIRMED") throw new MandateNotConfirmedError();
+
+  const ruleResults = evaluateDeterministicRules(mandate, cart);
+  const deterministic = deterministicVerdict(ruleResults);
+  let aiResult: AiResult | null = null;
+  let finalVerdict: Verdict = deterministic;
+
+  if (deterministic !== "BLOCK") {
+    try {
+      const parsedAiResult = AiResultSchema.safeParse(await semanticCheck(mandate, cart));
+      aiResult = parsedAiResult.success ? parsedAiResult.data : unavailableAiResult();
+    } catch {
+      aiResult = unavailableAiResult();
+    }
+    finalVerdict = combine(deterministic, aiResult.verdict);
+  }
+
+  const reasons = [
+    ...ruleResults.filter((rule) => !rule.passed).map(({ message }) => message),
+    ...(aiResult?.reasons ?? []),
+  ];
+
+  return DecisionSchema.parse({
+    decisionId: randomUUID(),
+    mandateHash: sha256Hex(canonicalJson(mandate)),
+    cartHash: sha256Hex(canonicalJson(cart)),
+    verdict: finalVerdict,
+    ruleResults,
+    aiResult,
+    reasons,
+    createdAt: new Date().toISOString(),
+  });
+}
