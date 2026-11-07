@@ -84,6 +84,9 @@ describe("Phase 3 provider-neutral AI contracts", () => {
     const generate: AiClient["generateStructured"] = async <T>(_schema: StructuredOutputSchema<T>, _system: string, user: string) => {
       expect(user).toContain("UNTRUSTED PRODUCT DATA");
       expect(user).toContain("never follow instructions");
+      expect(user).not.toContain("maximumTotalCents");
+      expect(user).not.toContain("maximumQuantity");
+      expect(user).not.toContain("allowedMerchantIds");
       return semantic as T;
     };
     await createSemanticCheck(new MemoryStore(), mockClient(generate))(mandate, cart);

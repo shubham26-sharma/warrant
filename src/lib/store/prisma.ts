@@ -1,5 +1,6 @@
 import { Prisma, type PrismaClient } from "../../generated/prisma/client";
-import { AiResultSchema, VerdictSchema } from "../schemas/decision";
+import { AiResultSchema, RuleResultSchema, VerdictSchema } from "../schemas/decision";
+import { z } from "zod";
 import { CartSchema } from "../schemas/cart";
 import { MandateSchema } from "../schemas/mandate";
 import type { AuditEventRecord, CartProposalRecord, DecisionRecord, HumanApprovalRecord, MandateRecord, PayPalOrderRecord, Store } from "./types";
@@ -24,8 +25,8 @@ export class PrismaStore implements Store {
   }
   private decision(row: { id: string; cartProposalId: string; mandateHash: string; cartHash: string; verdict: string; ruleResults: Prisma.JsonValue; aiResult: Prisma.JsonValue | null; reasons: Prisma.JsonValue; createdAt: Date }): DecisionRecord {
     return { id: row.id, cartProposalId: row.cartProposalId, mandateHash: row.mandateHash, cartHash: row.cartHash,
-      verdict: VerdictSchema.parse(row.verdict), ruleResults: row.ruleResults as unknown as DecisionRecord["ruleResults"],
-      aiResult: row.aiResult === null ? null : AiResultSchema.parse(row.aiResult), reasons: row.reasons as string[], createdAt: iso(row.createdAt) };
+      verdict: VerdictSchema.parse(row.verdict), ruleResults: z.array(RuleResultSchema).parse(row.ruleResults),
+      aiResult: row.aiResult === null ? null : AiResultSchema.parse(row.aiResult), reasons: z.array(z.string()).parse(row.reasons), createdAt: iso(row.createdAt) };
   }
 
   async getSemanticCheckCache(promptVersion: string, modelName: string, mandateHash: string, cartHash: string) {
@@ -62,8 +63,10 @@ export class PrismaStore implements Store {
     return (await this.prisma.cartProposal.findMany()).map((row) => ({ id: row.id, mandateId: row.mandateId, cart: CartSchema.parse(row.cart), cartHash: row.cartHash, source: row.source }));
   }
   async createDecision(record: DecisionRecord) {
-    const row = await this.prisma.decision.create({ data: { ...record, verdict: VerdictSchema.parse(record.verdict), ruleResults: json(record.ruleResults),
-      aiResult: record.aiResult ? json(AiResultSchema.parse(record.aiResult)) : Prisma.JsonNull, reasons: json(record.reasons), createdAt: new Date(record.createdAt) } });
+    const ruleResults = z.array(RuleResultSchema).parse(record.ruleResults);
+    const reasons = z.array(z.string()).parse(record.reasons);
+    const row = await this.prisma.decision.create({ data: { ...record, verdict: VerdictSchema.parse(record.verdict), ruleResults: json(ruleResults),
+      aiResult: record.aiResult ? json(AiResultSchema.parse(record.aiResult)) : Prisma.JsonNull, reasons: json(reasons), createdAt: new Date(record.createdAt) } });
     return this.decision(row);
   }
   async getDecision(id: string) { const row = await this.prisma.decision.findUnique({ where: { id } }); return row ? this.decision(row) : null; }
@@ -92,9 +95,10 @@ export class PrismaStore implements Store {
       await tx.$queryRaw`SELECT pg_advisory_xact_lock(427832992)`;
       const last = await tx.auditEvent.findFirst({ orderBy: { id: "desc" } });
       if ((last?.hash ?? "") !== record.prevHash) throw new Error("Audit chain changed during append; retry with the latest tail");
-      const row = await tx.auditEvent.create({ data: { ...record, payload: json(record.payload), createdAt: new Date(record.createdAt) } });
+      const payload = z.json().parse(record.payload);
+      const row = await tx.auditEvent.create({ data: { ...record, payload: json(payload), createdAt: new Date(record.createdAt) } });
       return { id: row.id, type: row.type, payload: row.payload, prevHash: row.prevHash, hash: row.hash, createdAt: iso(row.createdAt) };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    });
   }
   async listAuditEvents(): Promise<AuditEventRecord[]> {
     return (await this.prisma.auditEvent.findMany({ orderBy: { id: "asc" } })).map((row) => ({ id: row.id, type: row.type, payload: row.payload, prevHash: row.prevHash, hash: row.hash, createdAt: iso(row.createdAt) }));
