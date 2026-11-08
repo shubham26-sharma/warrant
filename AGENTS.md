@@ -12,6 +12,10 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 Read this file fully before every task. It is the source of truth. If a phase prompt conflicts with it, stop and ask.
 
+## Environment file handling
+
+Never create, edit, overwrite, or read the contents of any `.env*` file. If a variable must change, tell the human the exact line to update.
+
 ## What we are building
 
 **Warrant** is a buyer-side authorization gateway for AI agents that spend money through PayPal. An AI agent can only *propose* a purchase. Warrant checks the proposal against a human-confirmed mandate, and only an approved proposal can become a PayPal Sandbox order.

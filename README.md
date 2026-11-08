@@ -21,8 +21,6 @@ Requirements: Node.js 20.19+ and npm.
 5. Run the scripted agent to see repeatable proposals. Only an APPROVE decision, or a REVIEW decision with a recorded manager approval, can proceed to checkout.
 6. PayPal Sandbox requires the buyer to approve each order in a browser. No autonomous or real-money payments are supported.
 
-Screenshots: **TODO: capture the walkthrough pages after the human browser walkthrough.**
-
 ## Configuration
 
 Copy these variables into the deployment host or `.env.local`; never commit credentials.
@@ -55,10 +53,10 @@ All payment and Gemini credentials are server-side. Only variables explicitly na
 | `npm run eval -- --mode ai` | Run development guard and compiler cases against Gemini. Requires `GEMINI_API_KEY` and `GEMINI_MODEL`. |
 | `npm run eval -- --mode ai --heldout` | Include held-out cases for final reporting; do not use these cases for tuning. |
 | `npm run demo:warmup` | Run the real semantic check on the seeded sample and populate the database cache. Requires working Gemini connectivity. |
-| `npm run paypal:smoke` | Create a $10 PayPal Sandbox smoke-test order and print its approval URL. This helper does not exercise Warrant checkout or capture. |
+| `npm run paypal:smoke` | Create a $15 PayPal Sandbox smoke-test order through the guarded gateway and print its approval URL. The smoke test does not capture the order. |
 | `npm run db:migrate` / `npm run db:seed` | Apply migrations / safely create the sample confirmed mandate. |
 
-The installed `postinstall` script runs `prisma generate`, including during deployment dependency installation.
+The installed `postinstall` script runs `prisma generate`. Prisma 7 loads `prisma.config.ts`, which selects `DIRECT_URL` for migrations and falls back to `DATABASE_URL`.
 
 ## Architecture
 
@@ -84,16 +82,22 @@ The app lives under `src/app`; server logic is under `src/lib`. Only `src/lib/ai
 
 ## Safety properties and evidence
 
-- The agent cannot reach payment or storage write paths: static import and tool-surface checks in `tests/security/`.
-- AI can only tighten a deterministic result; provider failure or invalid output fails closed to REVIEW: guard and AI-layer cases in `tests/guard/` and `tests/ai/`.
-- Orders require a reverified gateway authorization; captures recheck PayPal status, amount and currency: `tests/security/gateway.test.ts` and `tests/security/paypal.test.ts`.
-- Money uses integer cents until PayPal formatting: `tests/money.test.ts`.
-- Product text is treated as untrusted data and marker behavior is covered by `tests/guard/injection-markers.test.ts`.
-- Unconfirmed or ambiguous mandates cannot be confirmed: `tests/schemas.test.ts`, `tests/ai/phase3.test.ts`, and `tests/security/routes.test.ts`.
-- Human REVIEW approvals are recorded; BLOCK cannot be overridden: `tests/security/gateway.test.ts`.
-- Secrets stay server-side: static import checks in `tests/security/` and environment variables are read only by server modules.
-- The audit chain uses canonical JSON and SHA-256: `tests/hash.test.ts` and audit/gateway cases in `tests/security/gateway.test.ts`.
-- Scenario fixtures are validated by `tests/validate-scenarios.ts`; expected outcomes in `tests/fixtures/scenarios.json` are not tuned or edited by evaluation.
+Each invariant has automated evidence:
+
+| Invariant | Test evidence |
+| --- | --- |
+| 1. The agent has exactly `get_mandate` and `propose_cart`, cannot set prices, call unknown tools, or import payment/storage write paths. | `tests/ai/phase3.test.ts` checks tool names, strict proposal input, unknown tool behavior, and provider import boundary; `tests/security/gateway.test.ts` checks PayPal imports stay in gateway code. |
+| 2. AI can only tighten; deterministic BLOCK remains BLOCK; timeout, errors, and invalid output fail closed to REVIEW. | `tests/guard/combine.test.ts`, `tests/guard/evaluate.test.ts`, and `tests/security/agent-route.test.ts`. |
+| 3. Order creation requires a gateway-minted authorization after decision, cart, and mandate re-verification. | `tests/security/gateway.test.ts` checks blocked and unapproved review decisions, changed carts, stale mandates, duplicate orders, and guarded order creation. |
+| 4. Capture rechecks PayPal status, amount, and currency and is idempotent. | `tests/security/gateway.test.ts` checks mismatch rejection and one capture across retries; `tests/security/paypal.test.ts` checks the PayPal request shape and idempotency header. |
+| 5. Money stays integer cents until PayPal formatting. | `tests/money.test.ts` and `tests/security/paypal.test.ts`. |
+| 6. Product text is untrusted; injection markers can raise severity and are delimited in semantic prompts. | `tests/guard/injection-markers.test.ts`, `tests/guard/evaluate.test.ts`, and `tests/ai/phase3.test.ts`. |
+| 7. Only persisted confirmed mandates are evaluated; unresolved ambiguity prevents confirmation. | `tests/guard/evaluate.test.ts`, `tests/schemas.test.ts`, `tests/ai/phase3.test.ts`, and `tests/security/routes.test.ts`. |
+| 8. A hard-rule BLOCK cannot be overridden; REVIEW needs a recorded human approval. | `tests/security/gateway.test.ts`. |
+| 9. PayPal and Gemini credentials stay server-side; no development payment route exists. | `tests/security/paypal.test.ts` and `tests/ai/phase3.test.ts` static scans. |
+| 10. The application audit trail is append-only and hash-chained using canonical JSON and SHA-256. | `tests/hash.test.ts` and the audit tampering check in `tests/security/gateway.test.ts`. |
+
+`tests/validate-scenarios.ts` validates fixture shape; evaluation does not alter fixture expected outcomes.
 
 ## Evaluation
 
@@ -117,4 +121,3 @@ The fixture set has 24 cases (16 development and 8 held-out). These examples are
 - Mandates are AP2-inspired, not AP2-compliant. This project does not claim legal signatures or autonomous payment capability.
 - The small 24-case scenario set cannot prove safety; model results vary.
 - A human must deploy the app, configure host environment variables, complete a Sandbox buyer walkthrough, provide the hosted URL and buyer test instructions, and record the demo video.
-- Walkthrough screenshots are not included yet; capture them after completing the human walkthrough.
