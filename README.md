@@ -21,6 +21,10 @@ Requirements: Node.js 20.19+ and npm.
 5. Run the scripted agent to see repeatable proposals. Only an APPROVE decision, or a REVIEW decision with a recorded manager approval, can proceed to checkout.
 6. PayPal Sandbox requires the buyer to approve each order in a browser. No autonomous or real-money payments are supported.
 
+### Deploy on Render
+
+The repository includes a Render Blueprint at `render.yaml`. Create a Blueprint from this repository and enter the environment values prompted by the dashboard; secret values are intentionally omitted from the file. Before deploying, apply Prisma migrations against the production database with `npm run db:migrate` from an environment configured for that database. After the service is created, set `APP_BASE_URL` to its public `https://…onrender.com` URL so PayPal return and cancel links point to the deployed app. The Blueprint pins Node.js with `NODE_VERSION`, builds with `npm install && npm run build`, starts with `npm run start`, and checks `/api/health`. It selects Render's free web plan, which can spin down after idle and take about a minute to wake on the next request.
+
 ## Configuration
 
 Copy these variables into the deployment host or `.env.local`; never commit credentials.
