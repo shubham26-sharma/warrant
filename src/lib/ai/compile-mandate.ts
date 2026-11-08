@@ -84,13 +84,18 @@ export async function compileMandate(
   const allowedMerchantIds = output.allowedMerchantIds.filter((id) => merchantVocabulary.some((merchant) => merchant.id === id));
   const modelAttributes = output.requiredAttributes.filter((attribute) => {
     const key = attribute.key.trim().toLocaleLowerCase();
-    return PRODUCTS.some((product) => Object.keys(product.attributes).some((candidate) => candidate.toLocaleLowerCase() === key));
+    return PRODUCTS.some((product) => Object.entries(product.attributes).some(([candidateKey, candidateValue]) =>
+      candidateKey.toLocaleLowerCase() === key && candidateValue?.toLocaleLowerCase() === attribute.value.trim().toLocaleLowerCase()));
   });
   const explicitAttributes = attributeVocabulary.flatMap((pair) => {
     const [key, value] = pair.split("=", 2);
     return text.toLocaleLowerCase().includes(value.toLocaleLowerCase()) ? [{ key, value }] : [];
   });
-  const requiredAttributes = [...new Map([...modelAttributes, ...explicitAttributes].map((attribute) => [`${attribute.key.toLocaleLowerCase()}=${attribute.value.toLocaleLowerCase()}`, attribute])).values()];
+  const explicitKeys = new Set(explicitAttributes.map((attribute) => `${attribute.key.toLocaleLowerCase()}=${attribute.value.toLocaleLowerCase()}`));
+  const requiredAttributes = [...new Map([...explicitAttributes, ...modelAttributes.filter((attribute) => explicitKeys.has(`${attribute.key.toLocaleLowerCase()}=${attribute.value.toLocaleLowerCase()}`))]
+    .map((attribute) => [`${attribute.key.toLocaleLowerCase()}=${attribute.value.toLocaleLowerCase()}`, attribute])).values()];
+  const suggestions = [...new Map(modelAttributes.filter((attribute) => !explicitKeys.has(`${attribute.key.toLocaleLowerCase()}=${attribute.value.toLocaleLowerCase()}`))
+    .map((attribute) => [`${attribute.key.toLocaleLowerCase()}=${attribute.value.toLocaleLowerCase()}`, attribute])).values()];
 
   const candidate = {
     mandateId: randomUUID(),
@@ -110,6 +115,7 @@ export async function compileMandate(
     },
     softConstraints: { preferredBrands: output.preferredBrands, preferredAttributes: output.preferredAttributes },
     ambiguity: { hasAmbiguity: unresolvedClauses.length > 0, unresolvedClauses },
+    suggestions,
     status: "DRAFT" as const,
     confirmedAt: null,
   };

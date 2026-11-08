@@ -14,6 +14,7 @@ import { CartSchema } from "../../src/lib/schemas/cart";
 import type { AiResult } from "../../src/lib/schemas/decision";
 import { MandateSchema } from "../../src/lib/schemas/mandate";
 import { confirmMandate } from "../../src/lib/mandates/confirm-mandate";
+import { applyAttributeSuggestion } from "../../src/lib/mandates/draft-suggestions";
 import { MemoryStore } from "../../src/lib/store/memory";
 
 const mandate = MandateSchema.parse(fixture.baseMandate);
@@ -72,6 +73,20 @@ describe("Phase 3 provider-neutral AI contracts", () => {
     });
     expect(draft.status).toBe("DRAFT");
     expect(MandateSchema.parse(draft).status).toBe("DRAFT");
+  });
+
+  it("keeps speculative attributes as suggestions until a manager applies one", async () => {
+    const client = mockClient(response({
+      ...compileOutput, maximumTotalCents: 6000, maximumQuantity: null, maximumDeliveryDays: null,
+      allowedMerchantIds: ["demo-office-supplies"], requiredAttributes: [{ key: "material", value: "recycled" }],
+    }));
+    const draft = await compileMandate("Buy eco-friendly printer paper, maximum $60 from Warrant Demo Store", "USD", client);
+    expect(draft.ambiguity.unresolvedClauses).toContain("eco-friendly");
+    expect(draft.hardConstraints.requiredAttributes).toEqual([]);
+    expect(draft.suggestions).toContainEqual({ key: "material", value: "recycled" });
+    const applied = applyAttributeSuggestion(draft, draft.suggestions[0]);
+    expect(applied.hardConstraints.requiredAttributes).toContainEqual({ key: "material", value: "recycled" });
+    expect(applied.suggestions).toEqual([]);
   });
 
   it("propagates unavailable provider errors and validates outputs via injected schema", async () => {

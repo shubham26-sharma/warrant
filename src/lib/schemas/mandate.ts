@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const AttributeSchema = z.object({ key: z.string().min(1), value: z.string().min(1) });
+const AttributeSuggestionSchema = AttributeSchema;
 
 export const MandateSchema = z.object({
   mandateId: z.uuid(),
@@ -49,6 +50,7 @@ export const MandateDraftSchema = z.object({
   }),
   softConstraints: MandateSchema.shape.softConstraints,
   ambiguity: MandateSchema.shape.ambiguity,
+  suggestions: z.array(AttributeSuggestionSchema),
   status: z.literal("DRAFT"),
   confirmedAt: z.null(),
 });

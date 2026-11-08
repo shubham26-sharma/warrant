@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { MandateSchema, type Mandate, type MandateDraft } from "@/lib/schemas/mandate";
+import { applyAttributeSuggestion } from "@/lib/mandates/draft-suggestions";
 
 const example = "Reorder up to 5 packs of A4 recycled paper, max $60 including delivery and tax, delivered within 3 days, Warrant Demo Store only";
 type Confirmed = Mandate & { familyId: string; hash: string };
@@ -17,7 +18,7 @@ function centsFromInput(value: string): number | null {
 
 export function MandateBuilder({ initialMandate }: { initialMandate?: Confirmed | null }) {
   const [text, setText] = useState(initialMandate?.originalText ?? "");
-  const [draft, setDraft] = useState<MandateDraft | null>(initialMandate ? { ...initialMandate, status: "DRAFT", confirmedAt: null } : null);
+  const [draft, setDraft] = useState<MandateDraft | null>(initialMandate ? { ...initialMandate, suggestions: [], status: "DRAFT", confirmedAt: null } : null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -103,6 +104,7 @@ export function MandateBuilder({ initialMandate }: { initialMandate?: Confirmed 
           <label className="field-label">Resolve this ambiguity: <mark>{clause}</mark></label>
           <input value={answers[clause] ?? ""} onChange={(event) => resolveClause(clause, event.target.value)} placeholder="Write a concrete requirement" />
         </div>)}
+        {draft.suggestions.length > 0 && <div className="ambiguity"><p className="field-label">Optional suggestions · review before adding as requirements</p><div className="row-wrap">{draft.suggestions.map((suggestion) => <button className="button button-secondary" type="button" key={`${suggestion.key}=${suggestion.value}`} onClick={() => setDraft((current) => current ? applyAttributeSuggestion(current, suggestion) : current)}>Use {suggestion.key} = {suggestion.value}</button>)}</div></div>}
         <div className="form-grid">
           <label><span className="field-label">Maximum total (USD) {draft.hardConstraints.maximumTotalCents === null && <mark>required</mark>}</span><input className={draft.hardConstraints.maximumTotalCents === null ? "field-missing" : undefined} inputMode="decimal" value={draft.hardConstraints.maximumTotalCents === null ? "" : (draft.hardConstraints.maximumTotalCents / 100).toFixed(2)} onChange={(event) => { const cents = centsFromInput(event.target.value); updateHard({ maximumTotalCents: event.target.value.trim() ? cents : null }); }} /></label>
           <label><span className="field-label">Maximum quantity {draft.hardConstraints.maximumQuantity === null && <mark>required</mark>}</span><input className={draft.hardConstraints.maximumQuantity === null ? "field-missing" : undefined} type="number" min="1" step="1" value={draft.hardConstraints.maximumQuantity ?? ""} onChange={(event) => updateHard({ maximumQuantity: event.target.value ? (Number(event.target.value) > 0 && Number.isInteger(Number(event.target.value)) ? Number(event.target.value) : null) : null })} /></label>
