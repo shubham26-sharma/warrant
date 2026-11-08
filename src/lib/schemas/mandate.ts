@@ -8,7 +8,7 @@ export const MandateSchema = z.object({
   originalText: z.string(),
   currency: z.string().regex(/^[A-Za-z]{3}$/),
   hardConstraints: z.object({
-    maximumTotalCents: z.number().int().nonnegative(),
+    maximumTotalCents: z.number().int().positive(),
     maximumQuantity: z.number().int().positive(),
     maximumDeliveryDays: z.number().int().positive(),
     allowedMerchantIds: z.array(z.string().min(1)),
@@ -37,4 +37,21 @@ export const MandateSchema = z.object({
   }
 });
 
+export const MandateDraftSchema = z.object({
+  mandateId: MandateSchema.shape.mandateId,
+  version: MandateSchema.shape.version,
+  originalText: MandateSchema.shape.originalText,
+  currency: MandateSchema.shape.currency,
+  hardConstraints: MandateSchema.shape.hardConstraints.extend({
+    maximumTotalCents: z.number().int().positive().nullable(),
+    maximumQuantity: z.number().int().positive().nullable(),
+    maximumDeliveryDays: z.number().int().positive().nullable(),
+  }),
+  softConstraints: MandateSchema.shape.softConstraints,
+  ambiguity: MandateSchema.shape.ambiguity,
+  status: z.literal("DRAFT"),
+  confirmedAt: z.null(),
+});
+
 export type Mandate = z.infer<typeof MandateSchema>;
+export type MandateDraft = z.infer<typeof MandateDraftSchema>;

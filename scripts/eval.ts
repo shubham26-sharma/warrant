@@ -11,6 +11,7 @@ import { MandateSchema } from "../src/lib/schemas/mandate";
 import { evaluateCart } from "../src/lib/guard/evaluate";
 import type { Verdict } from "../src/lib/schemas/decision";
 import fixture from "../tests/fixtures/scenarios.json";
+import compilerExtraFixture from "../tests/fixtures/compiler-extra.json";
 
 loadScriptEnvironment();
 
@@ -34,6 +35,7 @@ type CaseResult = {
   pass: boolean | null;
   reasons: string[];
 };
+type ExtraCompilerCase = { id: string; text: string; expected: "CLEAR" | "AMBIGUOUS" };
 
 const scenarios = fixture.scenarios as Scenario[];
 const baseMandate = MandateSchema.parse(fixture.baseMandate);
@@ -90,9 +92,15 @@ function buildMarkdown(report: {
   }
   for (const split of groups) {
     lines.push(`## ${split === "held_out" ? "Held-out" : "Development"} cases`, "", "| ID | Stage | Category | Expected | Actual | Pass | Reasons |", "| --- | --- | --- | --- | --- | --- | --- |");
-    for (const row of report.results.filter((item) => item.split === split)) {
+    for (const row of report.results.filter((item) => item.split === split && item.category !== "compiler-extra")) {
       lines.push(`| ${row.id} | ${row.stage} | ${markdownCell(row.category)} | ${row.expected} | ${row.actual} | ${row.pass === null ? "SKIPPED" : row.pass ? "yes" : "no"} | ${markdownCell(row.reasons.join("; ") || "—")} |`);
     }
+    lines.push("");
+  }
+  const extraCompiler = report.results.filter((item) => item.category === "compiler-extra");
+  if (extraCompiler.length) {
+    lines.push("## Additional compiler cases (outside the 24 scenarios)", "", "| ID | Expected | Actual | Pass | Reasons |", "| --- | --- | --- | --- | --- |");
+    for (const row of extraCompiler) lines.push(`| ${row.id} | ${row.expected} | ${row.actual} | ${row.pass === null ? "SKIPPED" : row.pass ? "yes" : "no"} | ${markdownCell(row.reasons.join("; ") || "—")} |`);
     lines.push("");
   }
   lines.push("## Limitations", "", "The fixture set contains 24 scenarios and does not establish real-world safety. Model-backed results can vary. A skipped compiler case was not evaluated and must not be read as a pass.", "");
@@ -139,7 +147,11 @@ async function main(): Promise<void> {
       try {
         const draft = await compileMandate(scenario.mandateText ?? "", baseMandate.currency, client);
         let confirmationRefused = false;
-        try { confirmMandate(draft, {}); } catch { confirmationRefused = true; }
+        if (draft.hardConstraints.maximumTotalCents !== null && draft.hardConstraints.maximumQuantity !== null && draft.hardConstraints.maximumDeliveryDays !== null) {
+          try { confirmMandate(MandateSchema.parse(draft), {}); } catch { confirmationRefused = true; }
+        } else {
+          confirmationRefused = true;
+        }
         const ambiguityDetected = draft.ambiguity.hasAmbiguity && draft.ambiguity.unresolvedClauses.length > 0;
         const passed = ambiguityDetected && confirmationRefused;
         results.push({
@@ -150,6 +162,21 @@ async function main(): Promise<void> {
       } catch (error) {
         const detail = error instanceof AiUnavailableError ? "AI check unavailable" : error instanceof Error ? error.message : "Compiler evaluation failed";
         results.push({ id: scenario.id, category: scenario.category, split: scenario.split, stage: "compiler", expected: scenario.expected, actual: "ERROR", pass: false, reasons: [detail] });
+      }
+    }
+    const extraCases: ExtraCompilerCase[] = [
+      ...compilerExtraFixture.clean.map((item) => ({ ...item, expected: "CLEAR" as const })),
+      ...compilerExtraFixture.vague.map((item) => ({ ...item, expected: "AMBIGUOUS" as const })),
+    ];
+    for (const item of extraCases) {
+      try {
+        const draft = await compileMandate(item.text, baseMandate.currency, client);
+        const actual = draft.ambiguity.hasAmbiguity ? "AMBIGUOUS" : "CLEAR";
+        const pass = actual === item.expected && draft.status === "DRAFT";
+        results.push({ id: item.id, category: "compiler-extra", split: "development", stage: "compiler", expected: item.expected, actual, pass, reasons: [...draft.ambiguity.unresolvedClauses, `Compiler returned ${draft.status}`] });
+      } catch (error) {
+        const detail = error instanceof AiUnavailableError ? "AI check unavailable" : error instanceof Error ? error.message : "Compiler evaluation failed";
+        results.push({ id: item.id, category: "compiler-extra", split: "development", stage: "compiler", expected: item.expected, actual: "ERROR", pass: false, reasons: [detail] });
       }
     }
   }

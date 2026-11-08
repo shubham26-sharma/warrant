@@ -27,13 +27,16 @@ function response(value: unknown): AiClient["generateStructured"] {
   return async <T>(schema: StructuredOutputSchema<T>) => schema.parse(value);
 }
 
+const compileOutput = {
+  maximumTotalCents: 6000, maximumQuantity: 5, maximumDeliveryDays: 3,
+  allowedMerchantIds: ["demo-office-supplies"],
+  requiredAttributes: [{ key: "size", value: "A4" }, { key: "material", value: "recycled" }],
+  preferredBrands: [], preferredAttributes: [],
+};
+
 describe("Phase 3 provider-neutral AI contracts", () => {
   it("compiles concrete requests to drafts and flags missing or vague requirements", async () => {
-    const generateMock = vi.fn(response({
-      maximumTotalCents: 6000, maximumQuantity: 5, maximumDeliveryDays: 3,
-      allowedMerchantIds: ["demo-office-supplies"], requiredAttributes: [{ key: "size", value: "A4" }, { key: "material", value: "recycled" }],
-      preferredBrands: [], preferredAttributes: [], unresolvedClauses: [],
-    }));
+    const generateMock = vi.fn(response(compileOutput));
     const generate = generateMock as unknown as AiClient["generateStructured"];
     const client = mockClient(generate);
     const compiled = await compileMandate("Buy five packs of recycled A4 paper under $60 within 3 days from the demo store only", "USD", client);
@@ -41,7 +44,34 @@ describe("Phase 3 provider-neutral AI contracts", () => {
     expect(compiled.ambiguity.hasAmbiguity).toBe(false);
     const vague = await compileMandate("Buy good quality paper", "USD", client);
     expect(vague.ambiguity.hasAmbiguity).toBe(true);
-    expect(vague.ambiguity.unresolvedClauses.length).toBeGreaterThan(0);
+    expect(vague.ambiguity.unresolvedClauses).toContain("good quality");
+    expect(vague.status).toBe("DRAFT");
+  });
+
+  it("turns zero model maxima into null and derives missing-value clauses", async () => {
+    const client = mockClient(response({
+      ...compileOutput, maximumTotalCents: 0, maximumQuantity: 0, maximumDeliveryDays: 0,
+      allowedMerchantIds: [], requiredAttributes: [],
+    }));
+    const draft = await compileMandate("Buy the cheapest printer paper available", "USD", client);
+    expect(draft.hardConstraints).toMatchObject({ maximumTotalCents: null, maximumQuantity: null, maximumDeliveryDays: null });
+    expect(draft.ambiguity.unresolvedClauses).toEqual(expect.arrayContaining([
+      "cheapest", "maximum total not stated", "maximum quantity not stated", "maximum delivery days not stated",
+    ]));
+    expect(draft.status).toBe("DRAFT");
+  });
+
+  it("compiles a clean request without ambiguity using catalog vocabulary", async () => {
+    const client = mockClient(response({ ...compileOutput, allowedMerchantIds: [], requiredAttributes: [] }));
+    const draft = await compileMandate("Reorder up to 5 packs of A4 recycled paper, max $60 including delivery and tax, delivered within 3 days, Warrant Demo Store only", "USD", client);
+    expect(draft.ambiguity).toEqual({ hasAmbiguity: false, unresolvedClauses: [] });
+    expect(draft.hardConstraints).toMatchObject({
+      maximumTotalCents: 6000, maximumQuantity: 5, maximumDeliveryDays: 3,
+      allowedMerchantIds: ["demo-office-supplies"],
+      requiredAttributes: [{ key: "size", value: "A4" }, { key: "material", value: "recycled" }],
+    });
+    expect(draft.status).toBe("DRAFT");
+    expect(MandateSchema.parse(draft).status).toBe("DRAFT");
   });
 
   it("propagates unavailable provider errors and validates outputs via injected schema", async () => {

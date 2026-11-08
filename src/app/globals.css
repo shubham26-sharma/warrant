@@ -25,6 +25,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 .row-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }.button { display: inline-flex; justify-content: center; align-items: center; gap: 8px; border: 1px solid transparent; border-radius: 10px; padding: 11px 16px; font-weight: 700; font-size: 14px; cursor: pointer; transition: transform .12s, background .12s; }.button:hover:not(:disabled) { transform: translateY(-1px); }.button:disabled { opacity: .55; cursor: not-allowed; }.button-primary { background: var(--green); color: white; }.button-primary:hover:not(:disabled) { background: #0f5942; }.button-secondary { border-color: #bbd5ca; background: #f4faf6; color: var(--green); }.button-quiet { border-color: var(--line); background: white; color: #465550; }
 .field-label { display: block; font-weight: 700; font-size: 13px; margin-bottom: 7px; color: #293a35; }
 input, textarea, select { width: 100%; border: 1px solid #cbd8d2; border-radius: 9px; padding: 11px 12px; background: white; color: var(--ink); }
+.field-missing { border-color: #d7a522; background: #fff9e8; }
 textarea { resize: vertical; line-height: 1.5; } input:hover, textarea:hover, select:hover { border-color: #94b4a5; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }.form-grid label { display: block; }
 .small-muted { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 0; }

@@ -1,0 +1,11 @@
+{
+  "clean": [
+    { "id": "CX-C01", "text": "Order 3 cartons of blue archive folders, maximum $42, within 6 days from Warrant Demo Store." },
+    { "id": "CX-C02", "text": "Reorder up to 8 packs of A4 paper, maximum $75 including delivery, within 4 days from Warrant Demo Store." },
+    { "id": "CX-C03", "text": "Buy 2 boxes of recycled letter paper for no more than $30 and delivery within 5 days from Bulk Paper Outlet." }
+  ],
+  "vague": [
+    { "id": "CX-V01", "text": "Buy the cheapest desk organizers from Warrant Demo Store." },
+    { "id": "CX-V02", "text": "Get the usual eco-friendly shipping labels." }
+  ]
+}
