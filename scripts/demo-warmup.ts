@@ -1,12 +1,12 @@
-import dotenv from "dotenv";
-dotenv.config({ path: ".env.local" });
-dotenv.config({ path: ".env" });
+import { loadScriptEnvironment, requireEnvironmentVariables } from "./env";
 
 import { runScriptedAgent } from "../src/lib/ai/scripted-agent";
 import { createSemanticCheck } from "../src/lib/ai/semantic-check";
 import { MandateSchema } from "../src/lib/schemas/mandate";
 import { getPrismaClient } from "../src/lib/db/prisma";
 import { PrismaStore } from "../src/lib/store/prisma";
+
+loadScriptEnvironment();
 
 let prismaClient: ReturnType<typeof getPrismaClient> | undefined;
 async function main() {
@@ -21,9 +21,11 @@ async function main() {
   console.log(`Semantic cache warmed for the sample proposal (${result.verdict}).`);
 }
 
-main().catch((error: unknown) => {
+const configured = requireEnvironmentVariables(["DATABASE_URL", "GEMINI_API_KEY", "GEMINI_MODEL"]);
+if (configured) main().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : "Demo warmup failed");
   process.exitCode = 1;
 }).finally(async () => {
   await prismaClient?.$disconnect();
 });
+else process.exitCode = 1;

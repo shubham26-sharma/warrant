@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import dotenv from "dotenv";
+import { loadScriptEnvironment, requireEnvironmentVariables } from "./env";
 import { AiUnavailableError, getAiClient } from "../src/lib/ai/client";
 import { compileMandate } from "../src/lib/ai/compile-mandate";
 import { createSemanticCheck } from "../src/lib/ai/semantic-check";
@@ -12,8 +12,7 @@ import { evaluateCart } from "../src/lib/guard/evaluate";
 import type { Verdict } from "../src/lib/schemas/decision";
 import fixture from "../tests/fixtures/scenarios.json";
 
-dotenv.config({ path: ".env.local" });
-dotenv.config({ path: ".env" });
+loadScriptEnvironment();
 
 type Mode = "baseline" | "ai";
 type Scenario = {
@@ -102,6 +101,10 @@ function buildMarkdown(report: {
 
 async function main(): Promise<void> {
   const { mode, includeHeldOut } = parseArgs(process.argv.slice(2));
+  if (mode === "ai" && !requireEnvironmentVariables(["GEMINI_API_KEY", "GEMINI_MODEL"])) {
+    process.exitCode = 1;
+    return;
+  }
   if (includeHeldOut) console.warn("WARNING: held-out scenarios are for final reporting only; do not use them for tuning.");
 
   const selected = scenarios.filter((scenario) => includeHeldOut || scenario.split === "development");
@@ -125,11 +128,8 @@ async function main(): Promise<void> {
 
   const compilerCases = selected.filter((item) => item.expectedStage === "compiler");
   const offlineBaseline = mode === "baseline";
-  const missingAiConfiguration = mode === "ai" && (!process.env.GEMINI_API_KEY?.trim() || !process.env.GEMINI_MODEL?.trim());
-  if (offlineBaseline || missingAiConfiguration) {
-    const reason = offlineBaseline
-      ? "Skipped: offline baseline does not make Gemini calls."
-      : "Skipped: GEMINI_API_KEY and/or GEMINI_MODEL is not configured.";
+  if (offlineBaseline) {
+    const reason = "Skipped: offline baseline does not make Gemini calls.";
     notes.push(`${reason} Compiler cases: ${compilerCases.map((item) => item.id).join(", ") || "none"}.`);
     for (const scenario of compilerCases) {
       results.push({ id: scenario.id, category: scenario.category, split: scenario.split, stage: "compiler", expected: scenario.expected, actual: "SKIPPED", pass: null, reasons: [reason] });

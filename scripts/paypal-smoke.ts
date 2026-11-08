@@ -1,10 +1,10 @@
-import dotenv from "dotenv";
-dotenv.config({ path: ".env.local" });
-dotenv.config({ path: ".env" });
+import { loadScriptEnvironment, requireEnvironmentVariables } from "./env";
 
 import { evaluateProposal, startCheckout } from "../src/lib/gateway/purchase";
 import { MemoryStore } from "../src/lib/store/memory";
 import { seedSampleMandate } from "../src/lib/mandates/sample";
+
+loadScriptEnvironment();
 
 async function main() {
   const store = new MemoryStore();
@@ -25,7 +25,9 @@ async function main() {
   console.log(order.approvalUrl);
 }
 
-main().catch((error: unknown) => {
+const configured = requireEnvironmentVariables(["PAYPAL_CLIENT_ID", "PAYPAL_CLIENT_SECRET"]);
+if (configured) main().catch((error: unknown) => {
   console.error(error instanceof Error ? error.message : "PayPal smoke test failed");
   process.exitCode = 1;
 });
+else process.exitCode = 1;

@@ -58,6 +58,8 @@ All payment and Gemini credentials are server-side. Only variables explicitly na
 
 The installed `postinstall` script runs `prisma generate`. Prisma 7 loads `prisma.config.ts`, which selects `DIRECT_URL` for migrations and falls back to `DATABASE_URL`.
 
+CLI scripts load `.env.local` and then `.env`; existing process environment values take precedence. Scripts that need configuration report missing variable names only and never print values.
+
 ## Architecture
 
 ```text

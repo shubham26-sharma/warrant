@@ -11,7 +11,11 @@ import { getPrismaClient } from "../../src/lib/db/prisma";
 import { canonicalJson, sha256Hex } from "../../src/lib/hash";
 import { appendEvent, verifyChain } from "../../src/lib/audit/chain";
 
-dotenv.config({ path: ".env.local" });
+const prismaTestsRequested = process.env.RUN_PRISMA_STORE_TESTS === "1";
+if (prismaTestsRequested && !process.env.DATABASE_URL) {
+  dotenv.config({ path: ".env.local" });
+  dotenv.config({ path: ".env" });
+}
 
 const baseMandate = MandateSchema.parse(fixture.baseMandate);
 const cart = CartSchema.parse(fixture.scenarios.find((item) => item.id === "C01")?.cart);
@@ -113,5 +117,5 @@ function contract(name: string, getStore: () => Promise<Store>, enabled: boolean
 }
 
 contract("Memory", async () => new MemoryStore(), true);
-const prismaEnabled = process.env.RUN_PRISMA_STORE_TESTS === "1" && Boolean(process.env.DATABASE_URL);
+const prismaEnabled = prismaTestsRequested && Boolean(process.env.DATABASE_URL);
 contract("Prisma", async () => new PrismaStore(getPrismaClient()), prismaEnabled);

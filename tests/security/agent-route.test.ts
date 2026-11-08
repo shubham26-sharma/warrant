@@ -9,7 +9,11 @@ import { MandateSchema } from "../../src/lib/schemas/mandate";
 import type { MandateRecord } from "../../src/lib/store/types";
 import type { AiBudgetContext } from "../../src/lib/ai/budget";
 
-dotenv.config({ path: ".env.local" });
+const prismaTestsRequested = process.env.RUN_PRISMA_STORE_TESTS === "1";
+if (prismaTestsRequested && !process.env.DATABASE_URL) {
+  dotenv.config({ path: ".env.local" });
+  dotenv.config({ path: ".env" });
+}
 
 const runtimeState = vi.hoisted(() => ({ store: undefined as unknown }));
 const mockRunAgent = vi.hoisted(() => vi.fn());
@@ -82,7 +86,7 @@ describe("agent route fail-closed behavior", () => {
   });
 });
 
-const prismaEnabled = process.env.RUN_PRISMA_STORE_TESTS === "1" && Boolean(process.env.DATABASE_URL);
+const prismaEnabled = prismaTestsRequested && Boolean(process.env.DATABASE_URL);
 
 describe.skipIf(!prismaEnabled)("agent route Prisma timeout integration", () => {
   afterEach(() => vi.unstubAllEnvs());
