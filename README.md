@@ -117,7 +117,8 @@ The fixture set has 24 cases (16 development and 8 held-out). These examples are
 - Set `APP_BASE_URL` to the deployed public origin so PayPal return and cancel URLs point to the deployment.
 - Keep `DEMO_RESET_ENABLED` unset or `false` on a public site.
 - Run migrations against the direct database URL before serving traffic; seed the sample mandate as needed.
-- `GET /api/health` checks database connectivity and returns only a generic health status, never configuration values.
+- `GET /api/health` is a shallow liveness check that returns immediately without external dependencies; Render uses this path.
+- `GET /api/health/deep` checks database connectivity with a four-second timeout and returns only a generic status, never connection details.
 - Rate limiting is in-memory and applies to model-backed routes; it is not a distributed limiter across multiple instances.
 
 ## Current limitations and human steps

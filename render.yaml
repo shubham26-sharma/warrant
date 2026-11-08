@@ -5,6 +5,7 @@ services:
     plan: free
     buildCommand: npm install && npm run build
     startCommand: npm run start
+    # Shallow liveness only; database diagnostics are available at /api/health/deep.
     healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
