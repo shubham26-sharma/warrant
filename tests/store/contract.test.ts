@@ -9,6 +9,7 @@ import { MemoryStore } from "../../src/lib/store/memory";
 import { PrismaStore } from "../../src/lib/store/prisma";
 import { getPrismaClient } from "../../src/lib/db/prisma";
 import { canonicalJson, sha256Hex } from "../../src/lib/hash";
+import { appendEvent, verifyChain } from "../../src/lib/audit/chain";
 
 dotenv.config({ path: ".env.local" });
 
@@ -83,6 +84,31 @@ function contract(name: string, getStore: () => Promise<Store>, enabled: boolean
         expect(await store.listAuditEvents()).toEqual(expect.any(Array));
       }
     }, name === "Prisma" ? 30_000 : 5_000);
+
+    if (name === "Prisma") {
+      it("appends, verifies, and serializes concurrent audit events inside a rolled-back transaction", async () => {
+        const prisma = getPrismaClient();
+        const eventType = `ROLLBACK_AUDIT_TEST_${randomUUID()}`;
+        class RollbackAuditTest extends Error {}
+
+        await expect(prisma.$transaction(async (tx) => {
+          const transactionStore = new PrismaStore(tx, true);
+          await appendEvent(transactionStore, eventType, { index: 1 });
+          await appendEvent(transactionStore, eventType, { index: 2 });
+          await Promise.all([
+            appendEvent(transactionStore, eventType, { index: 3 }),
+            appendEvent(transactionStore, eventType, { index: 4 }),
+          ]);
+
+          const events = (await transactionStore.listAuditEvents()).filter((event) => event.type === eventType);
+          expect(events).toHaveLength(4);
+          expect(await verifyChain(transactionStore)).toEqual({ ok: true });
+          throw new RollbackAuditTest("rollback audit integration rows");
+        }, { maxWait: 15_000, timeout: 30_000 })).rejects.toThrow("rollback audit integration rows");
+
+        expect(await prisma.auditEvent.count({ where: { type: eventType } })).toBe(0);
+      }, 30_000);
+    }
   });
 }
 

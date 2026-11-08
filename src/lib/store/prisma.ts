@@ -9,7 +9,10 @@ const json = (value: unknown): Prisma.InputJsonValue => value as Prisma.InputJso
 const iso = (value: Date): string => value.toISOString();
 
 export class PrismaStore implements Store {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(
+    private readonly prisma: PrismaClient | Prisma.TransactionClient,
+    private readonly transactionScoped = false,
+  ) {}
 
   private mandate(row: { id: string; familyId: string; version: number; text: string; constraints: Prisma.JsonValue; hash: string; status: "DRAFT" | "CONFIRMED"; confirmedAt: Date | null }): MandateRecord {
     const details = row.constraints as { currency: string; hardConstraints: unknown; softConstraints: unknown; ambiguity: unknown };
@@ -91,14 +94,18 @@ export class PrismaStore implements Store {
     return this.order(row);
   }
   async appendAuditEvent(record: Omit<AuditEventRecord, "id">) {
-    return this.prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(427832992)`;
+    const append = async (tx: Prisma.TransactionClient) => {
+      // This lock function returns PostgreSQL void, so execute it without result deserialization.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(427832992)`;
       const last = await tx.auditEvent.findFirst({ orderBy: { id: "desc" } });
       if ((last?.hash ?? "") !== record.prevHash) throw new Error("Audit chain changed during append; retry with the latest tail");
       const payload = z.json().parse(record.payload);
       const row = await tx.auditEvent.create({ data: { ...record, payload: json(payload), createdAt: new Date(record.createdAt) } });
       return { id: row.id, type: row.type, payload: row.payload, prevHash: row.prevHash, hash: row.hash, createdAt: iso(row.createdAt) };
-    });
+    };
+
+    if (this.transactionScoped) return append(this.prisma as Prisma.TransactionClient);
+    return (this.prisma as PrismaClient).$transaction(append);
   }
   async listAuditEvents(): Promise<AuditEventRecord[]> {
     return (await this.prisma.auditEvent.findMany({ orderBy: { id: "asc" } })).map((row) => ({ id: row.id, type: row.type, payload: row.payload, prevHash: row.prevHash, hash: row.hash, createdAt: iso(row.createdAt) }));
