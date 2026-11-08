@@ -53,5 +53,9 @@ describe("PayPal Sandbox client", () => {
     const leakedEnv = sources.filter(({ path, source }) => /process\.env\.PAYPAL_(?:CLIENT_ID|CLIENT_SECRET)/.test(source) && !path.endsWith(join("lib", "paypal.ts")));
     expect(leakedEnv).toEqual([]);
     expect(sources.some(({ path }) => path.includes(`${join("app", "api", "dev")}`))).toBe(false);
+
+    const smokeScript = readFileSync(join(process.cwd(), "scripts", "paypal-smoke.ts"), "utf8");
+    expect(smokeScript).toContain("startCheckout(store, decision.id");
+    expect(smokeScript).not.toMatch(/paypalClient\.createPayPalOrder|paypalClient\.capturePayPalOrder/);
   });
 });
