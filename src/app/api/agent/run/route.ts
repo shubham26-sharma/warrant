@@ -65,6 +65,6 @@ export async function POST(request: Request) {
     return Response.json({ proposals }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof z.ZodError) return errorResponse(error.issues[0]?.message ?? "Invalid request", 400);
-    return errorResponse(error instanceof Error ? error.message : "Agent run failed", 500);
+    return errorResponse("Agent run failed. Please try again.", 500);
   }
 }

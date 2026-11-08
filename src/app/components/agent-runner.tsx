@@ -24,7 +24,7 @@ export function AgentRunner({ mandates }: { mandates: MandateChoice[] }) {
       for (const scenario of scenarios) {
         const response = await fetch("/api/agent/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mode, mandateId, request, ...(scenario ? { scenario } : {}) }) });
         const value = await response.json() as { proposals?: ProposalResult[]; error?: string; fallback?: boolean };
-        if (!response.ok) throw new Error(value.error ?? "Agent run failed");
+        if (!response.ok) throw new Error(response.status >= 500 ? "Agent results could not be saved. Please try again." : value.error ?? "Agent run failed.");
         all.push(...(value.proposals ?? []));
         setFallback((current) => current || Boolean(value.fallback));
         if (value.error && !value.fallback) setError(value.error);
@@ -41,7 +41,8 @@ export function AgentRunner({ mandates }: { mandates: MandateChoice[] }) {
       <label><span className="field-label">Live agent instruction</span><textarea rows={2} value={request} onChange={(event) => setRequest(event.target.value)} /></label>
       <div className="row-wrap"><button className="button button-primary" type="button" onClick={() => run("scripted")} disabled={busy}>{busy ? "Running…" : "Run scripted agent"}</button><button className="button button-secondary" type="button" onClick={() => run("live")} disabled={busy}>{busy ? "Running…" : "Run live agent"}</button></div>
       <p className="small-muted">Scripted scenarios are repeatable. The live model only proposes products; the server prices and checks each cart.</p>
-      {fallback && <p className="notice notice-warn" role="status">AI check unavailable. The fallback proposal is shown as REVIEW.</p>}
+      {busy && <p className="progress-indicator" role="status" aria-live="polite"><span className="progress-spinner" aria-hidden="true" /> Running the agent and checking proposals…</p>}
+      {fallback && <p className="notice notice-warn" role="status">AI check unavailable. Proposals were sent to REVIEW.</p>}
       {error && <p className="notice notice-warn" role="alert">{error}</p>}
     </section>
     {results.length > 0 && <section className="stack-md"><div className="section-heading"><div><p className="eyebrow">PROPOSALS</p><h2>Decision results</h2></div><span>{results.length} proposal{results.length === 1 ? "" : "s"}</span></div><div className="card-grid">

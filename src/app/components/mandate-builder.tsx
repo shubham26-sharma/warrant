@@ -36,7 +36,13 @@ export function MandateBuilder({ initialMandate }: { initialMandate?: Confirmed 
     try {
       const response = await fetch("/api/mandates/compile", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text, currency: "USD" }) });
       const value = await response.json() as Mandate | { error?: string };
-      if (!response.ok) throw new Error("error" in value ? value.error ?? "Compilation failed" : "Compilation failed");
+      if (!response.ok) {
+        const message = "error" in value ? value.error : undefined;
+        if (response.status === 503 && message === "AI check unavailable") {
+          throw new Error("AI is temporarily unavailable, so your mandate draft was not compiled. Check the Gemini connection and try again.");
+        }
+        throw new Error(message ?? "Mandate compilation failed. Please try again.");
+      }
       const compiled = value as Mandate;
       setDraft(compiled);
       setAnswers(Object.fromEntries(compiled.ambiguity.unresolvedClauses.map((clause) => [clause, ""])));
