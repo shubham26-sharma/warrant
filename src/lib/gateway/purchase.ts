@@ -3,7 +3,7 @@ import { buildCart } from "../catalog/products";
 import { appendEvent } from "../audit/chain";
 import { canonicalJson, sha256Hex } from "../hash";
 import { evaluateCart, type SemanticCheck } from "../guard/evaluate";
-import { AiUnavailableError, getAiClient } from "../ai/client";
+import { AiUnavailableError, type AiFailureCode, getAiClient } from "../ai/client";
 import { createSemanticCheck } from "../ai/semantic-check";
 import { CartSchema } from "../schemas/cart";
 import { MandateSchema } from "../schemas/mandate";
@@ -38,6 +38,7 @@ export async function evaluateProposal(
   await appendEvent(store, "CART_PROPOSAL_EVALUATED", {
     proposalId: proposal.id, decisionId: persisted.id, mandateId, mandateVersion: mandate.version, source,
     cartHash, verdict: persisted.verdict, reasons: persisted.reasons,
+    ...(decision.aiResult?.code ? { aiFailureCode: decision.aiResult.code } : {}),
   });
   return { proposal, decision: persisted };
 }
@@ -89,6 +90,6 @@ export async function completeCheckout(store: Store, paypalOrderId: string, clie
   return { order: updated, alreadyCaptured: false };
 }
 
-export function unavailableSemanticCheck(): SemanticCheck {
-  return async () => { throw new AiUnavailableError(); };
+export function unavailableSemanticCheck(code: AiFailureCode = "AI_UPSTREAM"): SemanticCheck {
+  return async () => { throw new AiUnavailableError("Gemini is unavailable", { code }); };
 }

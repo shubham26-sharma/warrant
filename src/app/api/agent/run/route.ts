@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { getAiClient } from "@/lib/ai/client";
+import { getAiClient, classifyAiError, AiUnavailableError, type AiFailureCode } from "@/lib/ai/client";
 import { withAiBudget } from "@/lib/ai/budget";
 import { logAiFailure } from "@/lib/ai/diagnostics";
 import { runAgent } from "@/lib/ai/agent";
@@ -37,25 +37,31 @@ export async function POST(request: Request) {
       return Response.json({ proposals: [{ ...result, rationale: scripted.rationale }], mode: "scripted" }, { headers: { "Cache-Control": "no-store" } });
     }
 
-    const fallbackReview = async () => {
+    const fallbackReview = async (aiFailureCode?: AiFailureCode) => {
       const fallback = runScriptedAgent("compliant");
-      const evaluated = await evaluateProposal(store, mandate.mandateId, itemsOf(fallback.cart), "AGENT_SCRIPTED", unavailableSemanticCheck());
+      const evaluated = await evaluateProposal(store, mandate.mandateId, itemsOf(fallback.cart), "AGENT_SCRIPTED", unavailableSemanticCheck(aiFailureCode));
       return Response.json({
         proposals: [{ ...evaluated, rationale: fallback.rationale }],
         mode: "live", fallback: true, error: "AI check unavailable",
-      }, { headers: { "Cache-Control": "no-store" } });
+      }, {
+        headers: {
+          "Cache-Control": "no-store",
+          ...(aiFailureCode ? { "x-ai-error-code": aiFailureCode } : {}),
+        },
+      });
     };
 
     let result: Awaited<ReturnType<typeof runAgent>>;
     try {
       result = await withAiBudget((budget) => runAgent(mandate, input.request, getAiClient(), budget));
     } catch (error) {
-      logAiFailure(error);
-      return await fallbackReview();
+      const failure = error instanceof AiUnavailableError ? error : classifyAiError(error);
+      logAiFailure(error, failure.code, failure.status);
+      return await fallbackReview(failure.code);
     }
     if (result.error || result.proposals.length === 0) {
-      logAiFailure(new Error(result.error ?? "The live agent returned no proposals"));
-      return await fallbackReview();
+      logAiFailure(new Error(result.error ?? "The live agent returned no proposals"), "AI_BAD_OUTPUT");
+      return await fallbackReview("AI_BAD_OUTPUT");
     }
 
     const proposals = await Promise.all(result.proposals.map(async (item) => {

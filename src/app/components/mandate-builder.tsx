@@ -39,8 +39,26 @@ export function MandateBuilder({ initialMandate }: { initialMandate?: Confirmed 
       const value = await response.json() as Mandate | { error?: string };
       if (!response.ok) {
         const message = "error" in value ? value.error : undefined;
-        if (response.status === 503 && message === "AI check unavailable") {
-          throw new Error("AI is temporarily unavailable, so your mandate draft was not compiled. Check the Gemini connection and try again.");
+        const code = response.headers.get("x-ai-error-code");
+        if (response.status === 503) {
+          switch (code) {
+            case "AI_NOT_CONFIGURED":
+              throw new Error("AI is not configured. Please set GEMINI_API_KEY and GEMINI_MODEL in the environment.");
+            case "AI_AUTH":
+              throw new Error("AI authentication failed. Please verify your GEMINI_API_KEY in the environment.");
+            case "AI_MODEL_NOT_FOUND":
+              throw new Error("AI model not found. Please verify GEMINI_MODEL in the environment.");
+            case "AI_QUOTA":
+              throw new Error("AI rate limit or quota exceeded. Please try again in a minute.");
+            case "AI_TIMEOUT":
+              throw new Error("AI request timed out. Please try again in a moment.");
+            case "AI_BAD_OUTPUT":
+              throw new Error("AI returned an invalid output. Please rephrase your request and try again.");
+            case "AI_UPSTREAM":
+              throw new Error("AI service is temporarily unavailable. Please try again in a minute.");
+            default:
+              throw new Error("AI is temporarily unavailable, so your mandate draft was not compiled. Check the Gemini connection and try again.");
+          }
         }
         throw new Error(message ?? "Mandate compilation failed. Please try again.");
       }

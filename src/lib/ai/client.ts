@@ -47,10 +47,27 @@ export interface AiClient {
   runToolCallingLoop(options: ToolLoopOptions): Promise<ToolLoopResult>;
 }
 
+export type AiFailureCode =
+  | "AI_NOT_CONFIGURED"
+  | "AI_AUTH"
+  | "AI_MODEL_NOT_FOUND"
+  | "AI_QUOTA"
+  | "AI_TIMEOUT"
+  | "AI_BAD_OUTPUT"
+  | "AI_UPSTREAM";
+
 export class AiUnavailableError extends Error {
-  constructor(message = "Gemini is unavailable", options?: ErrorOptions) {
+  readonly code: AiFailureCode;
+  readonly status?: number;
+
+  constructor(
+    message = "Gemini is unavailable",
+    options?: ErrorOptions & { code?: AiFailureCode; status?: number },
+  ) {
     super(message, options);
     this.name = "AiUnavailableError";
+    this.code = options?.code ?? "AI_UPSTREAM";
+    this.status = options?.status;
   }
 }
 
@@ -58,26 +75,46 @@ const MAX_RETRIES = 1;
 
 type GeminiRuntime = { client: GoogleGenAI; model: string };
 
+function unavailable(
+  message: string,
+  cause: unknown,
+  code?: AiFailureCode,
+  status?: number,
+): AiUnavailableError {
+  const classified = code ? { code, status } : classifyAiError(cause);
+  logAiFailure(cause, classified.code, classified.status);
+  return new AiUnavailableError(message, {
+    cause,
+    code: classified.code,
+    status: classified.status,
+  });
+}
+
 function createGeminiRuntime(): GeminiRuntime {
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   const model = process.env.GEMINI_MODEL?.trim();
   if (!apiKey || !model) {
-    throw new AiUnavailableError("GEMINI_API_KEY and GEMINI_MODEL must be configured");
+    throw unavailable(
+      "GEMINI_API_KEY and GEMINI_MODEL must be configured",
+      new Error("AI credentials missing"),
+      "AI_NOT_CONFIGURED",
+    );
   }
   try {
     return { client: new GoogleGenAI({ apiKey }), model };
   } catch (error) {
-    throw new AiUnavailableError("Gemini client could not be initialized", { cause: error });
+    throw unavailable("Gemini client could not be initialized", error, "AI_NOT_CONFIGURED");
   }
 }
 
 function getStatus(error: unknown): number | undefined {
   if (!error || typeof error !== "object") return undefined;
-  const value = error as { status?: unknown; statusCode?: unknown; code?: unknown };
+  const value = error as { status?: unknown; statusCode?: unknown; code?: unknown; response?: { status?: unknown } };
   if (typeof value.status === "number") return value.status;
   if (typeof value.status === "string" && /^\d+$/.test(value.status)) return Number(value.status);
   if (typeof value.statusCode === "number") return value.statusCode;
   if (typeof value.statusCode === "string" && /^\d+$/.test(value.statusCode)) return Number(value.statusCode);
+  if (typeof value.response?.status === "number") return value.response.status;
   if (typeof value.code === "number") return value.code;
   return undefined;
 }
@@ -94,19 +131,96 @@ function isAbortOrTimeout(error: unknown, signal?: AbortSignal): boolean {
     code === "ABORT_ERR" || code === "ETIMEDOUT";
 }
 
-function isTransient(error: unknown, signal?: AbortSignal): boolean {
-  if (isAbortOrTimeout(error, signal)) return false;
+export function classifyAiError(error: unknown, signal?: AbortSignal): { code: AiFailureCode; status?: number } {
+  if (signal?.aborted || isAbortOrTimeout(error, signal)) {
+    return { code: "AI_TIMEOUT" };
+  }
+  if (error instanceof AiUnavailableError) {
+    return { code: error.code, status: error.status };
+  }
+  if (error && typeof error === "object") {
+    const errObj = error as { name?: unknown; message?: unknown };
+    if (errObj.name === "AiBudgetExceededError") {
+      return { code: "AI_TIMEOUT" };
+    }
+    const msg = typeof errObj.message === "string" ? errObj.message : "";
+    if (msg.includes("AI_TIMEOUT_MS must be an integer")) {
+      return { code: "AI_NOT_CONFIGURED" };
+    }
+  }
+
   const status = getStatus(error);
-  if (status === 429 || (status !== undefined && status >= 500)) return true;
-  if (!error || typeof error !== "object") return false;
-  const value = error as { code?: unknown };
-  const code = typeof value.code === "string" ? value.code.toUpperCase() : "";
-  return ["ECONNRESET", "EAI_AGAIN", "ECONNREFUSED"].includes(code);
+  if (status === 401 || status === 403) {
+    return { code: "AI_AUTH", status };
+  }
+  if (status === 404) {
+    return { code: "AI_MODEL_NOT_FOUND", status };
+  }
+  if (status === 429) {
+    return { code: "AI_QUOTA", status };
+  }
+  if (status === 400) {
+    return { code: "AI_BAD_OUTPUT", status };
+  }
+  if (status !== undefined && status >= 500 && status < 600) {
+    return { code: "AI_UPSTREAM", status };
+  }
+
+  if (error && typeof error === "object") {
+    const errObj = error as { message?: unknown; code?: unknown };
+    const msg = (typeof errObj.message === "string" ? errObj.message : "").toLowerCase();
+    const codeStr = (typeof errObj.code === "string" ? errObj.code : "").toUpperCase();
+
+    if (codeStr === "ECONNRESET" || codeStr === "EAI_AGAIN" || codeStr === "ECONNREFUSED" || codeStr === "ENOTFOUND") {
+      return { code: "AI_UPSTREAM" };
+    }
+    if (msg.includes("api_key") || msg.includes("api key") || msg.includes("unauthenticated") || msg.includes("permission_denied") || msg.includes("forbidden")) {
+      return { code: "AI_AUTH" };
+    }
+    if (msg.includes("not found") || msg.includes("models/")) {
+      return { code: "AI_MODEL_NOT_FOUND" };
+    }
+    if (msg.includes("quota") || msg.includes("rate limit") || msg.includes("resource_exhausted") || msg.includes("too many requests")) {
+      return { code: "AI_QUOTA", status: 429 };
+    }
+    if (msg.includes("must be configured") || msg.includes("gemini_api_key") || msg.includes("gemini_model")) {
+      return { code: "AI_NOT_CONFIGURED" };
+    }
+    if (msg.includes("json") || msg.includes("schema") || msg.includes("invalid output") || msg.includes("tool loop") || msg.includes("unknown tool")) {
+      return { code: "AI_BAD_OUTPUT" };
+    }
+  }
+
+  return { code: "AI_UPSTREAM", status };
 }
 
-function unavailable(message: string, cause: unknown): AiUnavailableError {
-  logAiFailure(cause);
-  return new AiUnavailableError(message, { cause });
+function getRetryDelayMs(error: unknown): number | null {
+  if (!error || typeof error !== "object") return null;
+  const val = error as Record<string, unknown>;
+  const headers = (val.response as { headers?: unknown })?.headers || val.headers;
+  let retryAfter: string | undefined | null;
+  if (headers && typeof (headers as Headers).get === "function") {
+    retryAfter = (headers as Headers).get("retry-after");
+  } else if (headers && typeof headers === "object") {
+    const rec = headers as Record<string, string>;
+    retryAfter = rec["retry-after"] || rec["Retry-After"];
+  }
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+      return Math.round(seconds * 1000);
+    }
+  }
+  if (typeof val.retryDelay === "number" && val.retryDelay >= 0) {
+    return val.retryDelay;
+  }
+  if (typeof val.message === "string") {
+    const match = /retry\s+after\s+(\d+(?:\.\d+)?)\s*s/i.exec(val.message);
+    if (match) {
+      return Math.round(Number(match[1]) * 1000);
+    }
+  }
+  return null;
 }
 
 async function waitForRetry(delayMs: number, signal?: AbortSignal): Promise<boolean> {
@@ -132,17 +246,32 @@ async function withProviderRetry<T>(
   for (let attempt = 0; ; attempt += 1) {
     const remainingMs = deadlineAt - Date.now();
     if (signal?.aborted || remainingMs <= 0) {
-      throw unavailable("Gemini request timed out", new Error("AI request exceeded its time budget"));
+      throw unavailable("Gemini request timed out", new Error("AI request exceeded its time budget"), "AI_TIMEOUT");
     }
     try {
       return await operation(Math.max(1, remainingMs));
     } catch (error) {
       const remainingAfterAttempt = deadlineAt - Date.now();
-      if (attempt < MAX_RETRIES && isTransient(error, signal) && remainingAfterAttempt > 300) {
-        const shouldRetry = await waitForRetry(Math.min(100, remainingAfterAttempt - 200), signal);
-        if (shouldRetry) continue;
+      const { code, status } = classifyAiError(error, signal);
+
+      // Retry policy: retry once only for 429-with-retry-delay and 5xx; never retry on timeout, auth, 404 or bad-output.
+      if (attempt < MAX_RETRIES && !signal?.aborted && remainingAfterAttempt > 200) {
+        if (code === "AI_QUOTA") {
+          const parsedDelay = getRetryDelayMs(error);
+          const delayMs = parsedDelay !== null ? parsedDelay : 500;
+          if (delayMs > 0 && remainingAfterAttempt > delayMs + 100) {
+            const shouldRetry = await waitForRetry(delayMs, signal);
+            if (shouldRetry) continue;
+          }
+        } else if (code === "AI_UPSTREAM" && (status === undefined || (status >= 500 && status < 600))) {
+          const delayMs = 100;
+          if (remainingAfterAttempt > delayMs + 100) {
+            const shouldRetry = await waitForRetry(delayMs, signal);
+            if (shouldRetry) continue;
+          }
+        }
       }
-      throw unavailable("Gemini request failed", error);
+      throw unavailable("Gemini request failed", error, code, status);
     }
   }
 }
@@ -159,7 +288,7 @@ export function getAiClient(): AiClient {
   return {
     getModelName(): string {
       const model = process.env.GEMINI_MODEL?.trim();
-      if (!model) throw new AiUnavailableError("GEMINI_MODEL must be configured");
+      if (!model) throw new AiUnavailableError("GEMINI_MODEL must be configured", { code: "AI_NOT_CONFIGURED" });
       return model;
     },
     async generateStructured<T>(schema: StructuredOutputSchema<T>, system: string, user: string, options?: AiRequestOptions): Promise<T> {
@@ -184,20 +313,20 @@ export function getAiClient(): AiClient {
       }), { signal: options?.signal, deadlineAt });
 
       if (typeof interaction.output_text !== "string") {
-        throw unavailable("Gemini returned no structured text", new Error("Provider response did not include structured text"));
+        throw unavailable("Gemini returned no structured text", new Error("Provider response did not include structured text"), "AI_BAD_OUTPUT");
       }
 
       let output: unknown;
       try {
         output = JSON.parse(interaction.output_text) as unknown;
       } catch (error) {
-        throw unavailable("Gemini returned invalid JSON", error);
+        throw unavailable("Gemini returned invalid JSON", error, "AI_BAD_OUTPUT");
       }
 
       try {
         return schema.parse(output);
       } catch (error) {
-        throw unavailable("Gemini output failed schema validation", error);
+        throw unavailable("Gemini output failed schema validation", error, "AI_BAD_OUTPUT");
       }
     },
 

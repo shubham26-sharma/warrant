@@ -17,6 +17,7 @@ export const AiResultSchema = z.object({
   verdict: VerdictSchema,
   reasons: z.array(z.string()),
   confidence: z.number().min(0).max(1).optional(),
+  code: z.string().optional(),
 });
 export type AiResult = z.infer<typeof AiResultSchema>;
 

@@ -1,7 +1,6 @@
 import { z } from "zod";
-import { AiBudgetExceededError } from "@/lib/ai/budget";
 import { compileMandate } from "@/lib/ai/compile-mandate";
-import { AiUnavailableError } from "@/lib/ai/client";
+import { AiUnavailableError, classifyAiError } from "@/lib/ai/client";
 import { logAiFailure } from "@/lib/ai/diagnostics";
 import { InvalidJsonError, errorResponse, rateLimitResponse, readJson } from "@/lib/http";
 
@@ -17,9 +16,17 @@ export async function POST(request: Request) {
   } catch (error) {
     if (error instanceof InvalidJsonError) return errorResponse(error.message, 400);
     if (error instanceof z.ZodError) return errorResponse(error.issues[0]?.message ?? "Invalid mandate request", 400);
-    if (!(error instanceof AiUnavailableError) && !(error instanceof AiBudgetExceededError)) {
-      logAiFailure(error);
-    }
-    return errorResponse("AI check unavailable", 503);
+    const failure = error instanceof AiUnavailableError ? error : classifyAiError(error);
+    logAiFailure(error, failure.code, failure.status);
+    return Response.json(
+      { error: "AI check unavailable" },
+      {
+        status: 503,
+        headers: {
+          "Cache-Control": "no-store",
+          "x-ai-error-code": failure.code,
+        },
+      },
+    );
   }
 }

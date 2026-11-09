@@ -6,6 +6,7 @@ import type { Mandate } from "../schemas/mandate";
 import { combine } from "./combine";
 import { deterministicVerdict, evaluateDeterministicRules } from "./rules";
 import { withAiBudget, type AiBudgetContext } from "../ai/budget";
+import { classifyAiError, AiUnavailableError } from "../ai/client";
 
 export type SemanticCheck = (mandate: Mandate, cart: Cart, budget?: AiBudgetContext) => Promise<unknown>;
 
@@ -16,8 +17,8 @@ export class MandateNotConfirmedError extends Error {
   }
 }
 
-function unavailableAiResult(): AiResult {
-  return { verdict: "REVIEW", reasons: ["AI check unavailable"] };
+function unavailableAiResult(code?: string): AiResult {
+  return { verdict: "REVIEW", reasons: ["AI check unavailable"], ...(code ? { code } : {}) };
 }
 
 export async function evaluateCart(mandate: Mandate, cart: Cart, semanticCheck: SemanticCheck): Promise<Decision> {
@@ -32,9 +33,10 @@ export async function evaluateCart(mandate: Mandate, cart: Cart, semanticCheck: 
     try {
       const rawAiResult = await withAiBudget((budget) => semanticCheck(mandate, cart, budget));
       const parsedAiResult = AiResultSchema.safeParse(rawAiResult);
-      aiResult = parsedAiResult.success ? parsedAiResult.data : unavailableAiResult();
-    } catch {
-      aiResult = unavailableAiResult();
+      aiResult = parsedAiResult.success ? parsedAiResult.data : unavailableAiResult("AI_BAD_OUTPUT");
+    } catch (error) {
+      const code = error instanceof AiUnavailableError ? error.code : classifyAiError(error).code;
+      aiResult = unavailableAiResult(code);
     }
     finalVerdict = combine(deterministic, aiResult.verdict);
   }
