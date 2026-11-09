@@ -17,6 +17,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:seed": "tsx scripts/db-seed.ts",
     "demo:warmup": "tsx scripts/demo-warmup.ts",
+    "check:env": "tsx scripts/check-env.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {

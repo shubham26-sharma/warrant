@@ -1,4 +1,5 @@
 import { getPrismaClient } from "@/lib/db/prisma";
+import { getDeepHealthConfig } from "@/lib/env-config";
 import { DATABASE_HEALTH_TIMEOUT_MS } from "@/lib/health";
 
 async function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
@@ -14,10 +15,11 @@ async function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise
 }
 
 export async function GET() {
+  const config = getDeepHealthConfig();
   try {
     await withTimeout(getPrismaClient().$queryRaw`SELECT 1`, DATABASE_HEALTH_TIMEOUT_MS);
-    return Response.json({ status: "ok", database: "connected" }, { headers: { "Cache-Control": "no-store" } });
+    return Response.json({ status: "ok", database: "connected", config }, { headers: { "Cache-Control": "no-store" } });
   } catch {
-    return Response.json({ status: "error", database: "unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } });
+    return Response.json({ status: "error", database: "unavailable", config }, { status: 503, headers: { "Cache-Control": "no-store" } });
   }
 }

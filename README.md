@@ -57,6 +57,7 @@ All payment and Gemini credentials are server-side. Only variables explicitly na
 | `npm run eval -- --mode ai` | Run development guard and compiler cases against Gemini. Requires `GEMINI_API_KEY` and `GEMINI_MODEL`. |
 | `npm run eval -- --mode ai --heldout` | Include held-out cases for final reporting; do not use these cases for tuning. |
 | `npm run demo:warmup` | Run the real semantic check on the seeded sample and populate the database cache. Requires working Gemini connectivity. |
+| `npm run check:env` | Validate required variable names and formats (loads `.env.local`) without printing any values. Pass `-- --hosted` to enforce hosted `https://` and production safety checks. |
 | `npm run paypal:smoke` | Create a $15 PayPal Sandbox smoke-test order through the guarded gateway and print its approval URL. The smoke test does not capture the order. |
 | `npm run db:migrate` / `npm run db:seed` | Apply migrations / safely create the sample confirmed mandate. |
 
@@ -118,7 +119,7 @@ The fixture set has 24 cases (16 development and 8 held-out). These examples are
 - Keep `DEMO_RESET_ENABLED` unset or `false` on a public site.
 - Run migrations against the direct database URL before serving traffic; seed the sample mandate as needed.
 - `GET /api/health` is a shallow liveness check that returns immediately without external dependencies; Render uses this path.
-- `GET /api/health/deep` checks database connectivity with a four-second timeout and returns only a generic status, never connection details.
+- `GET /api/health/deep` checks database connectivity with a four-second timeout and reports only a generic status plus a `config` object listing missing required variable names, never values or connection details.
 - Rate limiting is in-memory and applies to model-backed routes; it is not a distributed limiter across multiple instances.
 
 ## Current limitations and human steps

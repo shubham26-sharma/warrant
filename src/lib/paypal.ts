@@ -1,8 +1,9 @@
 import { z } from "zod";
+import { PAYPAL_SANDBOX_API_BASE } from "./env-config";
 import { centsToDecimalString } from "./money";
 import type { OrderAuthorization } from "./gateway/authorize";
 
-const SANDBOX_API = "https://api-m.sandbox.paypal.com";
+const SANDBOX_API = PAYPAL_SANDBOX_API_BASE;
 
 export interface PayPalOrderSnapshot {
   orderId: string;
