@@ -82,16 +82,26 @@ function getStatus(error: unknown): number | undefined {
   return undefined;
 }
 
-function isTransient(error: unknown): boolean {
-  const status = getStatus(error);
-  if (status === 429 || (status !== undefined && status >= 500)) return true;
+function isAbortOrTimeout(error: unknown, signal?: AbortSignal): boolean {
+  if (signal?.aborted) return true;
   if (!error || typeof error !== "object") return false;
   const value = error as { name?: unknown; code?: unknown; message?: unknown };
   const name = typeof value.name === "string" ? value.name.toLowerCase() : "";
   const code = typeof value.code === "string" ? value.code.toUpperCase() : "";
   const message = typeof value.message === "string" ? value.message.toLowerCase() : "";
-  return name.includes("timeout") || message.includes("timeout") || message.includes("timed out") ||
-    ["ECONNRESET", "ETIMEDOUT", "EAI_AGAIN", "ECONNREFUSED"].includes(code);
+  return name.includes("abort") || name.includes("timeout") ||
+    message.includes("aborted") || message.includes("timeout") || message.includes("timed out") ||
+    code === "ABORT_ERR" || code === "ETIMEDOUT";
+}
+
+function isTransient(error: unknown, signal?: AbortSignal): boolean {
+  if (isAbortOrTimeout(error, signal)) return false;
+  const status = getStatus(error);
+  if (status === 429 || (status !== undefined && status >= 500)) return true;
+  if (!error || typeof error !== "object") return false;
+  const value = error as { code?: unknown };
+  const code = typeof value.code === "string" ? value.code.toUpperCase() : "";
+  return ["ECONNRESET", "EAI_AGAIN", "ECONNREFUSED"].includes(code);
 }
 
 function unavailable(message: string, cause: unknown): AiUnavailableError {
@@ -99,15 +109,38 @@ function unavailable(message: string, cause: unknown): AiUnavailableError {
   return new AiUnavailableError(message, { cause });
 }
 
-async function withProviderRetry<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+async function waitForRetry(delayMs: number, signal?: AbortSignal): Promise<boolean> {
+  if (signal?.aborted || delayMs <= 0) return false;
+  return new Promise<boolean>((resolve) => {
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(!signal?.aborted);
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timer);
+      resolve(false);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
+}
+
+async function withProviderRetry<T>(
+  operation: (remainingMs: number) => Promise<T>,
+  options: { signal?: AbortSignal; deadlineAt: number },
+): Promise<T> {
+  const { signal, deadlineAt } = options;
   for (let attempt = 0; ; attempt += 1) {
+    const remainingMs = deadlineAt - Date.now();
+    if (signal?.aborted || remainingMs <= 0) {
+      throw unavailable("Gemini request timed out", new Error("AI request exceeded its time budget"));
+    }
     try {
-      if (signal?.aborted) throw new Error("AI request aborted by its total time budget");
-      return await operation();
+      return await operation(Math.max(1, remainingMs));
     } catch (error) {
-      if (attempt < MAX_RETRIES && !signal?.aborted && isTransient(error)) {
-        await new Promise((resolve) => setTimeout(resolve, 100));
-        continue;
+      const remainingAfterAttempt = deadlineAt - Date.now();
+      if (attempt < MAX_RETRIES && isTransient(error, signal) && remainingAfterAttempt > 300) {
+        const shouldRetry = await waitForRetry(Math.min(100, remainingAfterAttempt - 200), signal);
+        if (shouldRetry) continue;
       }
       throw unavailable("Gemini request failed", error);
     }
@@ -131,7 +164,9 @@ export function getAiClient(): AiClient {
     },
     async generateStructured<T>(schema: StructuredOutputSchema<T>, system: string, user: string, options?: AiRequestOptions): Promise<T> {
       const { client, model } = createGeminiRuntime();
-      const interaction = await withProviderRetry(() => client.interactions.create({
+      const timeoutMs = Math.min(getAiTimeoutMs(), options?.timeoutMs ?? getAiTimeoutMs());
+      const deadlineAt = Date.now() + timeoutMs;
+      const interaction = await withProviderRetry((remainingMs) => client.interactions.create({
         model,
         store: false,
         input: user,
@@ -143,10 +178,10 @@ export function getAiClient(): AiClient {
           schema: schema.jsonSchema,
         },
       }, {
-        timeout_ms: Math.min(getAiTimeoutMs(), options?.timeoutMs ?? getAiTimeoutMs()),
-        ...(options?.signal ? { fetch_options: { signal: options.signal } } : {}),
-        maxRetries: 0,
-      }), options?.signal);
+        timeout_ms: Math.min(getAiTimeoutMs(), remainingMs),
+        retries: { strategy: "none" },
+        ...(options?.signal ? { signal: options.signal } : {}),
+      }), { signal: options?.signal, deadlineAt });
 
       if (typeof interaction.output_text !== "string") {
         throw unavailable("Gemini returned no structured text", new Error("Provider response did not include structured text"));
@@ -168,6 +203,8 @@ export function getAiClient(): AiClient {
 
     async runToolCallingLoop(options: ToolLoopOptions): Promise<ToolLoopResult> {
       const { client, model } = createGeminiRuntime();
+      const totalTimeoutMs = Math.min(getAiTimeoutMs(), options.timeoutMs ?? getAiTimeoutMs());
+      const deadlineAt = Date.now() + totalTimeoutMs;
       const declaredTools = new Map(options.tools.map((tool) => [tool.name, tool]));
       const providerTools: Interactions.Tool[] = options.tools.map((tool) => ({
         type: "function",
@@ -183,7 +220,10 @@ export function getAiClient(): AiClient {
       const maxSteps = Math.min(6, Math.max(1, Math.floor(options.maxSteps)));
 
       for (let stepNumber = 0; stepNumber < maxSteps; stepNumber += 1) {
-        const interaction = await withProviderRetry(() => client.interactions.create({
+        if (options.signal?.aborted || Date.now() >= deadlineAt) {
+          throw unavailable("Gemini tool loop timed out", new Error("AI request exceeded its time budget"));
+        }
+        const interaction = await withProviderRetry((remainingMs) => client.interactions.create({
           model,
           store: false,
           input: history,
@@ -191,10 +231,10 @@ export function getAiClient(): AiClient {
           generation_config: { temperature: 0.1 },
           tools: providerTools,
         }, {
-          timeout_ms: Math.min(getAiTimeoutMs(), options.timeoutMs ?? getAiTimeoutMs()),
-          ...(options.signal ? { fetch_options: { signal: options.signal } } : {}),
-          maxRetries: 0,
-        }), options.signal);
+          timeout_ms: Math.min(getAiTimeoutMs(), remainingMs),
+          retries: { strategy: "none" },
+          ...(options.signal ? { signal: options.signal } : {}),
+        }), { signal: options.signal, deadlineAt });
         history.push(...interaction.steps);
 
         const calls = interaction.steps.filter((step): step is Interactions.FunctionCallStep => step.type === "function_call");
@@ -203,6 +243,9 @@ export function getAiClient(): AiClient {
         }
 
         for (const call of calls) {
+          if (options.signal?.aborted || Date.now() >= deadlineAt) {
+            throw unavailable("Gemini tool loop timed out", new Error("AI request exceeded its time budget"));
+          }
           const invocation = { name: call.name, arguments: call.arguments };
           toolCalls.push(invocation);
           if (!declaredTools.has(call.name)) {

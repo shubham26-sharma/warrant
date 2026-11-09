@@ -35,8 +35,10 @@ async function PurchaseContent({ params }: PageProps<"/purchases/[decisionId]">)
   if (!proposal) notFound();
   const mandate = await store.getMandate(proposal.mandateId);
   if (!mandate) notFound();
-  const approval = await store.getHumanApprovalByDecision(decisionId);
-  const order = await store.getPayPalOrderByDecision(decisionId);
+  const [approval, order] = await Promise.all([
+    store.getHumanApprovalByDecision(decisionId),
+    store.getPayPalOrderByDecision(decisionId),
+  ]);
 
   return <div className="stack-lg">
     <div className="page-heading"><p className="eyebrow">PURCHASE DECISION</p><div className="row-wrap"><h1 style={{ margin: 0 }}>Cart review</h1><StatusBadge verdict={decision.verdict} /></div><p>Decision <code>{decision.id}</code> · mandate version {mandate.version} · PayPal Sandbox</p></div>

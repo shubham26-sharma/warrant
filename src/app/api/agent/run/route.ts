@@ -6,7 +6,7 @@ import { runAgent } from "@/lib/ai/agent";
 import { runScriptedAgent, type ScriptedCase } from "@/lib/ai/scripted-agent";
 import { MandateSchema } from "@/lib/schemas/mandate";
 import { evaluateProposal, unavailableSemanticCheck } from "@/lib/gateway/purchase";
-import { errorResponse, rateLimitResponse, readJson } from "@/lib/http";
+import { InvalidJsonError, errorResponse, rateLimitResponse, readJson } from "@/lib/http";
 import { getStore } from "@/lib/runtime";
 
 const InputSchema = z.object({
@@ -64,6 +64,7 @@ export async function POST(request: Request) {
     }));
     return Response.json({ proposals }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    if (error instanceof InvalidJsonError) return errorResponse(error.message, 400);
     if (error instanceof z.ZodError) return errorResponse(error.issues[0]?.message ?? "Invalid request", 400);
     return errorResponse("Agent run failed. Please try again.", 500);
   }

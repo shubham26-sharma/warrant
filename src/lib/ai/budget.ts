@@ -30,6 +30,8 @@ export async function withAiBudget<T>(
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const work = Promise.resolve().then(() => operation({ signal: controller.signal, timeoutMs }));
+  // Prevent late rejections on an aborted operation from crashing the process after timeout wins.
+  work.catch(() => undefined);
   const deadline = new Promise<never>((_resolve, reject) => {
     timeout = setTimeout(() => {
       controller.abort();

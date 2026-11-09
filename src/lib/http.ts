@@ -1,13 +1,20 @@
 import { z } from "zod";
 import { consumeModelRouteToken } from "./rate-limit";
 
+export class InvalidJsonError extends Error {
+  constructor(message = "Request body must be valid JSON") {
+    super(message);
+    this.name = "InvalidJsonError";
+  }
+}
+
 export function errorResponse(message: string, status = 400) {
   return Response.json({ error: message }, { status, headers: { "Cache-Control": "no-store" } });
 }
 
 export async function readJson<T extends z.ZodType>(request: Request, schema: T): Promise<z.infer<T>> {
   let value: unknown;
-  try { value = await request.json(); } catch { throw new Error("Request body must be valid JSON"); }
+  try { value = await request.json(); } catch { throw new InvalidJsonError(); }
   return schema.parse(value);
 }
 

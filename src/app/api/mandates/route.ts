@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { confirmMandate } from "@/lib/mandates/confirm-mandate";
+import { MandateConfirmationError, confirmMandate } from "@/lib/mandates/confirm-mandate";
 import { MandateSchema } from "@/lib/schemas/mandate";
 import { appendEvent } from "@/lib/audit/chain";
-import { errorResponse, readJson } from "@/lib/http";
+import { InvalidJsonError, errorResponse, readJson } from "@/lib/http";
 import { getStore } from "@/lib/runtime";
 
 const InputSchema = z.object({
@@ -36,7 +36,9 @@ export async function POST(request: Request) {
     });
     return Response.json(saved, { status: 201, headers: { "Cache-Control": "no-store" } });
   } catch (error) {
+    if (error instanceof InvalidJsonError) return errorResponse(error.message, 400);
+    if (error instanceof MandateConfirmationError) return errorResponse(error.message, 400);
     if (error instanceof z.ZodError) return errorResponse(error.issues[0]?.message ?? "Invalid mandate", 400);
-    return errorResponse(error instanceof Error ? error.message : "Could not confirm mandate", 400);
+    return errorResponse("Could not confirm mandate", 503);
   }
 }

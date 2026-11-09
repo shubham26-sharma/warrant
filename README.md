@@ -94,7 +94,7 @@ Each invariant has automated evidence:
 | Invariant | Test evidence |
 | --- | --- |
 | 1. The agent has exactly `get_mandate` and `propose_cart`, cannot set prices, call unknown tools, or import payment/storage write paths. | `tests/ai/phase3.test.ts` checks tool names, strict proposal input, unknown tool behavior, and provider import boundary; `tests/security/gateway.test.ts` checks PayPal imports stay in gateway code. |
-| 2. AI can only tighten; deterministic BLOCK remains BLOCK; timeout, errors, and invalid output fail closed to REVIEW. | `tests/guard/combine.test.ts`, `tests/guard/evaluate.test.ts`, and `tests/security/agent-route.test.ts`. |
+| 2. AI can only tighten; deterministic BLOCK remains BLOCK; timeout, errors, and invalid output fail closed to REVIEW. | `tests/guard/combine.test.ts`, `tests/guard/evaluate.test.ts`, `tests/ai/client-timeout.test.ts`, `tests/security/agent-route.test.ts`, and `tests/security/routes.test.ts`. |
 | 3. Order creation requires a gateway-minted authorization after decision, cart, and mandate re-verification. | `tests/security/gateway.test.ts` checks blocked and unapproved review decisions, changed carts, stale mandates, duplicate orders, and guarded order creation. |
 | 4. Capture rechecks PayPal status, amount, and currency and is idempotent. | `tests/security/gateway.test.ts` checks mismatch rejection and one capture across retries; `tests/security/paypal.test.ts` checks the PayPal request shape and idempotency header. |
 | 5. Money stays integer cents until PayPal formatting. | `tests/money.test.ts` and `tests/security/paypal.test.ts`. |
@@ -120,6 +120,7 @@ The fixture set has 24 cases (16 development and 8 held-out). These examples are
 - Run migrations against the direct database URL before serving traffic; seed the sample mandate as needed.
 - `GET /api/health` is a shallow liveness check that returns immediately without external dependencies; Render uses this path.
 - `GET /api/health/deep` checks database connectivity with a four-second timeout and reports only a generic status plus a `config` object listing missing required variable names, never values or connection details.
+- Database pool connections (`4000ms` connect, `5000ms` query/operation timeout), Gemini requests (`retries: { strategy: "none" }` bounded by `AI_TIMEOUT_MS`), and PayPal Sandbox calls (`8000ms` timeout) fail fast with generic errors and never expose internal connection or credential details.
 - Rate limiting is in-memory and applies to model-backed routes; it is not a distributed limiter across multiple instances.
 
 ## Current limitations and human steps

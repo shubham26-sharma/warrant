@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { withAiBudget, type AiBudgetContext } from "./budget";
 import { getAiClient, type AiClient, type StructuredOutputSchema } from "./client";
 import { PRODUCTS, DEMO_MERCHANT_ID, ALTERNATE_MERCHANT_ID } from "../catalog/products";
 import { MandateDraftSchema, type MandateDraft } from "../schemas/mandate";
@@ -72,13 +73,16 @@ export async function compileMandate(
   text: string,
   defaultCurrency: string,
   client: AiClient = getAiClient(),
+  budget?: AiBudgetContext,
 ): Promise<MandateDraft> {
   if (text.length > 1000) throw new RangeError("Mandate text must be at most 1000 characters");
   if (!text.trim()) throw new TypeError("Mandate text cannot be empty");
   if (!/^[A-Za-z]{3}$/.test(defaultCurrency)) throw new TypeError("Default currency must be a three-letter code");
 
   const userPrompt = JSON.stringify({ request: text, merchants: merchantVocabulary, allowedAttributeKeys: [...new Set(PRODUCTS.flatMap((product) => Object.keys(product.attributes)))], knownAttributeValues: attributeVocabulary });
-  const output = await client.generateStructured(CompilerResponseSchema, systemPrompt, userPrompt);
+  const output = budget
+    ? await client.generateStructured(CompilerResponseSchema, systemPrompt, userPrompt, budget)
+    : await withAiBudget((scopedBudget) => client.generateStructured(CompilerResponseSchema, systemPrompt, userPrompt, scopedBudget));
   const unresolvedClauses = findUnresolvedClauses(text, output);
   const mentionedMerchants = merchantVocabulary.filter((merchant) => text.toLocaleLowerCase().includes(merchant.displayName.toLocaleLowerCase()));
   const allowedMerchantIds = output.allowedMerchantIds.filter((id) => merchantVocabulary.some((merchant) => merchant.id === id));

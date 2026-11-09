@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { PayPalUnavailableError } from "../../src/lib/errors";
 import { paypalClient } from "../../src/lib/paypal";
+import { PAYPAL_REQUEST_TIMEOUT_MS } from "../../src/lib/timeout";
 import type { OrderAuthorization } from "../../src/lib/gateway/authorize";
 
 describe("PayPal Sandbox client", () => {
-  afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.unstubAllGlobals(); });
 
   it("creates a human-approved CAPTURE order with integer cents and idempotency", async () => {
     vi.stubEnv("PAYPAL_CLIENT_ID", "test-client-id");
@@ -57,5 +59,29 @@ describe("PayPal Sandbox client", () => {
     const smokeScript = readFileSync(join(process.cwd(), "scripts", "paypal-smoke.ts"), "utf8");
     expect(smokeScript).toContain("startCheckout(store, decision.id");
     expect(smokeScript).not.toMatch(/paypalClient\.createPayPalOrder|paypalClient\.capturePayPalOrder/);
+  });
+
+  it("aborts and fails fast with PayPalUnavailableError when PayPal hangs past its timeout", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("PAYPAL_CLIENT_ID", "test-client-id");
+    vi.stubEnv("PAYPAL_CLIENT_SECRET", "test-client-secret");
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const auth = {
+      decisionId: "decision-timeout", mandateId: "mandate-1", cart: {}, totalCents: 1000, currency: "USD",
+    } as unknown as OrderAuthorization;
+
+    const promise = paypalClient.createPayPalOrder(auth, {
+      returnUrl: "https://app.test/paypal/return",
+      cancelUrl: "https://app.test/paypal/cancel",
+    });
+    const assertion = expect(promise).rejects.toBeInstanceOf(PayPalUnavailableError);
+    await vi.advanceTimersByTimeAsync(PAYPAL_REQUEST_TIMEOUT_MS);
+    await assertion;
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

@@ -3,6 +3,13 @@ import { canonicalJson, sha256Hex } from "../hash";
 import { MandateSchema, type Mandate } from "../schemas/mandate";
 import type { MandateRecord } from "../store/types";
 
+export class MandateConfirmationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MandateConfirmationError";
+  }
+}
+
 export type HumanMandateEdits = Partial<Pick<
   Mandate,
   "originalText" | "currency" | "hardConstraints" | "softConstraints" | "ambiguity"
@@ -14,7 +21,7 @@ export function confirmMandate(draft: Mandate | MandateRecord, humanEdits: Human
   const nextVersion = prior.status === "CONFIRMED" ? prior.version + 1 : prior.version;
   const edited = MandateSchema.parse({ ...prior, ...humanEdits, status: "DRAFT", confirmedAt: null });
   if (edited.ambiguity.hasAmbiguity || edited.ambiguity.unresolvedClauses.length > 0) {
-    throw new Error("Resolve every ambiguity before confirming the mandate");
+    throw new MandateConfirmationError("Resolve every ambiguity before confirming the mandate");
   }
   const confirmed = MandateSchema.parse({
     ...edited,

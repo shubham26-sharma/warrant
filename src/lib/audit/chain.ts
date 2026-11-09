@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { canonicalJson, chainHash } from "../hash";
+import { DATABASE_OPERATION_TIMEOUT_MS, TimeoutError } from "../timeout";
 import type { AuditEventRecord, Store } from "../store/types";
 
 let appendQueue: Promise<void> = Promise.resolve();
@@ -12,6 +13,7 @@ function hashEvent(prevHash: string, type: string, payload: unknown, timestamp: 
 }
 
 async function appendLocked(store: Store, type: string, payload: unknown): Promise<AuditEventRecord> {
+  const deadlineAt = Date.now() + DATABASE_OPERATION_TIMEOUT_MS;
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const events = await store.listAuditEvents();
     const last = events.at(-1);
@@ -21,7 +23,15 @@ async function appendLocked(store: Store, type: string, payload: unknown): Promi
     try {
       return await store.appendAuditEvent({ type, payload, prevHash, hash, createdAt });
     } catch (error) {
-      if (attempt === 4 || !(error instanceof Error) || !error.message.includes("Audit chain changed")) throw error;
+      if (
+        error instanceof TimeoutError ||
+        attempt === 4 ||
+        Date.now() >= deadlineAt ||
+        !(error instanceof Error) ||
+        !error.message.includes("Audit chain changed")
+      ) {
+        throw error;
+      }
     }
   }
   throw new Error("Could not append audit event");
