@@ -53,7 +53,7 @@ All payment and Gemini credentials are server-side. Only variables explicitly na
 | `npm start` | Run the production build. |
 | `npm run lint` | Run ESLint. |
 | `npm run typecheck` | Generate Next.js route types and run TypeScript. |
-| `npm test` | Run Vitest. The Prisma store contract is opt-in with `RUN_PRISMA_STORE_TESTS=1` and a configured database; use a dedicated test database when possible. |
+| `npm test` | Run Vitest (`3` PostgreSQL integration tests skip by default and opt-in with `RUN_PRISMA_STORE_TESTS=1`; verified `107/107` passing against a live Neon database on 2026-11-09). Use a dedicated test database when possible. |
 | `npm run test:scenarios` | Validate the 24 immutable fixture records and their shape. |
 | `npm run eval -- --mode baseline` | Run the offline development baseline: deterministic guard plus an always-APPROVE semantic stub. Compiler cases are skipped because this mode makes no Gemini calls. |
 | `npm run eval -- --mode ai` | Run development guard and compiler cases against Gemini. Requires `GEMINI_API_KEY` and `GEMINI_MODEL`. |
