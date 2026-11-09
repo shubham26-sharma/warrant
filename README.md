@@ -6,9 +6,10 @@ Warrant is a buyer-side authorization gateway for AI-proposed purchases. A manag
 
 ### Hosted demo
 
-- Hosted URL: **TODO: add the deployed URL after deployment.**
-- Video: **TODO: add a short demo video after recording.**
-- Sandbox buyer test credentials: **TODO: share credentials through the hackathon's approved channel.**
+- Hosted URL: `https://warrant-xcon.onrender.com`
+- Note on cold starts: Deployed on Render's free tier with Neon PostgreSQL. If the service is idle, the first request may take 30–60 seconds while the web container and serverless database wake.
+- Demo video: *Link will be posted on Devpost and in the repository header.*
+- Sandbox buyer test credentials: Use standard PayPal Sandbox Personal (Buyer) credentials or the dedicated test buyer credentials shared in the Devpost submission notes.
 
 ### Run locally
 
@@ -110,9 +111,29 @@ Each invariant has automated evidence:
 
 ## Evaluation
 
-The offline baseline was run on 2026-11-07 in development mode. It evaluated 13 guard scenarios: 2 correct approvals, 8 correct blocks, 3 correct reviews, 0 false approvals, 0 false blocks, and 0 guard mismatches. Three development compiler cases (A01–A03) were explicitly skipped because the baseline must not call Gemini. Held-out cases were not run. Full per-case output is in [`tests/results/RESULTS.md`](tests/results/RESULTS.md) and [`tests/results/latest.json`](tests/results/latest.json).
+Warrant was evaluated across two configurations: an offline baseline (deterministic guard plus an always-APPROVE semantic stub) and a live AI evaluation using Gemini interactions (`gemini-3.5-flash-lite`).
 
-The fixture set has 24 cases (16 development and 8 held-out). These examples are a small demonstration set, not statistical evidence or proof of real-world safety. Gemini outputs can vary.
+The test suite evaluates 29 total cases: 20 guard scenarios (16 development, 4 held-out) and 9 compiler ambiguity cases (4 scenario-defined plus 5 additional prompt variants).
+
+### Summary of Results
+
+| Run | Total Cases | Correct | Mismatches | False Approvals | Ambiguity Detection |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Development (AI mode)** | 21 | 20 | 1 (`V03`) | **0** | 3 / 3 (100%) |
+| **Development + Held-Out** | 29 | 27 | 2 (`V03`, `P03`) | **0** | 9 / 9 (100%) |
+| **Held-Out Only** | 8 | 7 | 1 (`P03`) | **0** | 1 / 1 (100%) |
+
+Per-case breakdown and raw execution logs are preserved in [`tests/results/RESULTS.md`](tests/results/RESULTS.md) and [`tests/results/latest.json`](tests/results/latest.json).
+
+### Analysis & Honest Disclosure
+
+- **Key Safety Metric (0 False Approvals):** Across all runs, zero unsafe, over-budget, or non-compliant carts received an `APPROVE` verdict.
+- **Direction of Mismatches (Conservative Tightening):** Both mismatches (`V03` and `P03`) were cases where the test fixture expected `REVIEW`, but the system produced `BLOCK`. 
+  - In `V03` (wrong variant with conflicting description), Gemini detected a clear contradiction between title and description regarding paper size and returned `BLOCK`.
+  - In `P03` (adversarial prompt injection in product description), Gemini identified the prompt injection attempt (`bypass, /api/`) and returned `BLOCK`.
+  - In neither case was any rule loosened; the AI tightened the verdict from `REVIEW` to `BLOCK`.
+- **Known Spec Nuance:** Section *Decision logic* in `AGENTS.md` notes that when deterministic rules emit `REVIEW`, the AI is *"not consulted, or consulted only to add reasons"*. In the implemented guard, the AI semantic check is still executed and combined with `max(deterministic, ai)`. When Gemini flags a severe contradiction or malicious injection as `BLOCK`, the final verdict escalates to `BLOCK`. While this preserves safety (no unsafe cart is approved), it has a practical trade-off: a `BLOCK` cannot be human-overridden, whereas a `REVIEW` can be approved with a manager note. We disclose this transparently as an intentionally conservative escalation rather than altering code post-evaluation.
+- **Statistical Disclaimer:** The 24 benchmark scenarios (plus 5 compiler variants) are a focused functional demonstration set, not statistical proof of real-world safety. Gemini model outputs can vary.
 
 ## Deployment preparation
 
