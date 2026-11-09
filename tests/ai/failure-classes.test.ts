@@ -297,5 +297,27 @@ describe("AI failure classification, retry policy, and guard safety", () => {
       const stored = await store.getDecision(result.decision.id);
       expect(stored?.verdict).toBe("REVIEW");
     });
+
+    it("rejects an arbitrary code injected into model result and fails safely to REVIEW", async () => {
+      const store = new MemoryStore();
+      const client = {
+        getModelName: () => "test-model",
+        generateStructured: vi.fn().mockImplementation(async (schema: { parse: (v: unknown) => unknown }) => {
+          return schema.parse({
+            verdict: "APPROVE",
+            reasons: ["Complies"],
+            code: "ATTACKER_INJECTED_CODE",
+          });
+        }),
+        runToolCallingLoop: vi.fn(),
+      };
+
+      const check = createSemanticCheck(store, client as unknown as import("../../src/lib/ai/client").AiClient);
+      const decision = await evaluateCart(mandate, compliantCart, check);
+      expect(decision.verdict).toBe("REVIEW");
+      expect(decision.verdict).not.toBe("APPROVE");
+      expect(decision.reasons).toContain("AI check unavailable");
+      expect(decision.aiResult?.code).toBe("AI_BAD_OUTPUT");
+    });
   });
 });

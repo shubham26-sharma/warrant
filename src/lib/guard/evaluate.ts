@@ -6,7 +6,7 @@ import type { Mandate } from "../schemas/mandate";
 import { combine } from "./combine";
 import { deterministicVerdict, evaluateDeterministicRules } from "./rules";
 import { withAiBudget, type AiBudgetContext } from "../ai/budget";
-import { classifyAiError, AiUnavailableError } from "../ai/client";
+import { classifyAiError, AiUnavailableError, type AiFailureCode } from "../ai/client";
 
 export type SemanticCheck = (mandate: Mandate, cart: Cart, budget?: AiBudgetContext) => Promise<unknown>;
 
@@ -17,7 +17,7 @@ export class MandateNotConfirmedError extends Error {
   }
 }
 
-function unavailableAiResult(code?: string): AiResult {
+function unavailableAiResult(code?: AiFailureCode): AiResult {
   return { verdict: "REVIEW", reasons: ["AI check unavailable"], ...(code ? { code } : {}) };
 }
 

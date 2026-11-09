@@ -13,11 +13,24 @@ export const RuleResultSchema = z.object({
 });
 export type RuleResult = z.infer<typeof RuleResultSchema>;
 
+export const AI_FAILURE_CODES = [
+  "AI_NOT_CONFIGURED",
+  "AI_AUTH",
+  "AI_MODEL_NOT_FOUND",
+  "AI_QUOTA",
+  "AI_TIMEOUT",
+  "AI_BAD_OUTPUT",
+  "AI_UPSTREAM",
+] as const;
+
+export const AiFailureCodeSchema = z.enum(AI_FAILURE_CODES);
+export type AiFailureCode = z.infer<typeof AiFailureCodeSchema>;
+
 export const AiResultSchema = z.object({
   verdict: VerdictSchema,
   reasons: z.array(z.string()),
   confidence: z.number().min(0).max(1).optional(),
-  code: z.string().optional(),
+  code: AiFailureCodeSchema.optional(),
 });
 export type AiResult = z.infer<typeof AiResultSchema>;
 

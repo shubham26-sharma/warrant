@@ -47,14 +47,8 @@ export interface AiClient {
   runToolCallingLoop(options: ToolLoopOptions): Promise<ToolLoopResult>;
 }
 
-export type AiFailureCode =
-  | "AI_NOT_CONFIGURED"
-  | "AI_AUTH"
-  | "AI_MODEL_NOT_FOUND"
-  | "AI_QUOTA"
-  | "AI_TIMEOUT"
-  | "AI_BAD_OUTPUT"
-  | "AI_UPSTREAM";
+import { type AiFailureCode, AI_FAILURE_CODES } from "../schemas/decision";
+export { type AiFailureCode, AI_FAILURE_CODES };
 
 export class AiUnavailableError extends Error {
   readonly code: AiFailureCode;
@@ -124,6 +118,7 @@ function isAbortOrTimeout(error: unknown, signal?: AbortSignal): boolean {
   if (!error || typeof error !== "object") return false;
   const value = error as { name?: unknown; code?: unknown; message?: unknown };
   const name = typeof value.name === "string" ? value.name.toLowerCase() : "";
+  if (name === "zoderror" || name === "syntaxerror") return false;
   const code = typeof value.code === "string" ? value.code.toUpperCase() : "";
   const message = typeof value.message === "string" ? value.message.toLowerCase() : "";
   return name.includes("abort") || name.includes("timeout") ||
@@ -132,14 +127,14 @@ function isAbortOrTimeout(error: unknown, signal?: AbortSignal): boolean {
 }
 
 export function classifyAiError(error: unknown, signal?: AbortSignal): { code: AiFailureCode; status?: number } {
-  if (signal?.aborted || isAbortOrTimeout(error, signal)) {
-    return { code: "AI_TIMEOUT" };
-  }
   if (error instanceof AiUnavailableError) {
     return { code: error.code, status: error.status };
   }
   if (error && typeof error === "object") {
     const errObj = error as { name?: unknown; message?: unknown };
+    if (errObj.name === "ZodError" || errObj.name === "SyntaxError") {
+      return { code: "AI_BAD_OUTPUT" };
+    }
     if (errObj.name === "AiBudgetExceededError") {
       return { code: "AI_TIMEOUT" };
     }
@@ -147,6 +142,9 @@ export function classifyAiError(error: unknown, signal?: AbortSignal): { code: A
     if (msg.includes("AI_TIMEOUT_MS must be an integer")) {
       return { code: "AI_NOT_CONFIGURED" };
     }
+  }
+  if (signal?.aborted || isAbortOrTimeout(error, signal)) {
+    return { code: "AI_TIMEOUT" };
   }
 
   const status = getStatus(error);
