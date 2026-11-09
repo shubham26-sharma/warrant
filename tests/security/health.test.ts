@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("@/lib/db/prisma", () => ({ getPrismaClient: vi.fn() }));
 
 import { GET as shallowHealth } from "../../src/app/api/health/route";
-import { DATABASE_HEALTH_TIMEOUT_MS, GET as deepHealth } from "../../src/app/api/health/deep/route";
+import { GET as deepHealth } from "../../src/app/api/health/deep/route";
+import { DATABASE_HEALTH_TIMEOUT_MS } from "../../src/lib/health";
 import { getPrismaClient } from "../../src/lib/db/prisma";
 
 const getPrismaMock = vi.mocked(getPrismaClient);

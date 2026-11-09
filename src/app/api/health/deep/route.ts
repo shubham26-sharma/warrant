@@ -1,6 +1,5 @@
 import { getPrismaClient } from "@/lib/db/prisma";
-
-export const DATABASE_HEALTH_TIMEOUT_MS = 4000;
+import { DATABASE_HEALTH_TIMEOUT_MS } from "@/lib/health";
 
 async function withTimeout<T>(operation: Promise<T>, timeoutMs: number): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
