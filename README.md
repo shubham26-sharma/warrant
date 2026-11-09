@@ -37,6 +37,8 @@ Copy these variables into the deployment host or `.env.local`; never commit cred
 | `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | PayPal Sandbox server credentials. |
 | `GEMINI_API_KEY` / `GEMINI_MODEL` | Gemini API credentials and a model supporting the used structured output and function-calling features. |
 | `AI_TIMEOUT_MS` | Total time budget in milliseconds for an agent run or an individual proposal's semantic check; defaults to 15000 and accepts 1–120000. |
+| `DB_CONNECT_TIMEOUT_MS` | Optional PostgreSQL pool connection timeout in milliseconds; defaults to 15000 and accepts 1000–60000. |
+| `DB_QUERY_TIMEOUT_MS` | Optional PostgreSQL query timeout in milliseconds; defaults to 15000 and accepts 1000–60000. |
 | `APP_BASE_URL` | Public app base URL used to build PayPal return and cancel URLs; defaults to `http://localhost:3000`. |
 | `DEMO_RESET_ENABLED` | Optional. Set to `true` only for a controlled demo; otherwise the reset route returns 404. Keep it unset/false on a hosted public demo. |
 
@@ -119,8 +121,8 @@ The fixture set has 24 cases (16 development and 8 held-out). These examples are
 - Keep `DEMO_RESET_ENABLED` unset or `false` on a public site.
 - Run migrations against the direct database URL before serving traffic; seed the sample mandate as needed.
 - `GET /api/health` is a shallow liveness check that returns immediately without external dependencies; Render uses this path.
-- `GET /api/health/deep` checks database connectivity with a four-second timeout and reports only a generic status plus a `config` object listing missing required variable names, never values or connection details.
-- Database pool connections (`4000ms` connect, `5000ms` query/operation timeout), Gemini requests (`retries: { strategy: "none" }` bounded by `AI_TIMEOUT_MS`), and PayPal Sandbox calls (`8000ms` timeout) fail fast with generic errors and never expose internal connection or credential details.
+- `GET /api/health/deep` checks database connectivity with a 10-second timeout (retrying once on transient connection errors) and reports only a generic status plus a `config` object listing missing required variable names, never values or connection details.
+- Database pool connections (`DB_CONNECT_TIMEOUT_MS` and `DB_QUERY_TIMEOUT_MS`, each defaulting to `15000ms`, with one retry on connection errors for read paths only), Gemini requests (`retries: { strategy: "none" }` bounded by `AI_TIMEOUT_MS`), and PayPal Sandbox calls (`8000ms` timeout) fail fast with generic errors and never expose internal connection or credential details.
 - Rate limiting is in-memory and applies to model-backed routes; it is not a distributed limiter across multiple instances.
 
 ## Current limitations and human steps

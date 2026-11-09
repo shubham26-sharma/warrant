@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { requireEnvironmentVariables } from "../../scripts/env";
-import { formatEnvCheckReport, getDeepHealthConfig, inspectEnvConfiguration } from "../../src/lib/env-config";
+import { formatEnvCheckReport, getDeepHealthConfig, inspectEnvConfiguration, OPTIONAL_ENV_NAMES } from "../../src/lib/env-config";
 
 function validHostedEnv(overrides: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   return {
@@ -98,5 +98,27 @@ describe("script environment validation", () => {
     expect(hostedResult.ok).toBe(false);
     expect(hostedResult.missing).toEqual(["NODE_VERSION"]);
     expect(hostedResult.invalid).toEqual(["APP_BASE_URL"]);
+  });
+
+  it("includes DB timeout names in optional env config and validates integer ranges without leaking values", () => {
+    expect(OPTIONAL_ENV_NAMES).toEqual(expect.arrayContaining(["DB_CONNECT_TIMEOUT_MS", "DB_QUERY_TIMEOUT_MS"]));
+
+    const validResult = inspectEnvConfiguration(validHostedEnv({
+      DB_CONNECT_TIMEOUT_MS: "1000",
+      DB_QUERY_TIMEOUT_MS: "60000",
+    }), { hosted: true });
+    expect(validResult.ok).toBe(true);
+    expect(validResult.invalid).toEqual([]);
+
+    const invalidResult = inspectEnvConfiguration(validHostedEnv({
+      DB_CONNECT_TIMEOUT_MS: "999",
+      DB_QUERY_TIMEOUT_MS: "bad-db-timeout-sentinel",
+    }), { hosted: true });
+    const report = formatEnvCheckReport(invalidResult);
+
+    expect(invalidResult.ok).toBe(false);
+    expect(invalidResult.missing).toEqual([]);
+    expect(invalidResult.invalid).toEqual(["DB_CONNECT_TIMEOUT_MS", "DB_QUERY_TIMEOUT_MS"]);
+    expect(report).not.toContain("bad-db-timeout-sentinel");
   });
 });

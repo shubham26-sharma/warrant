@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { appendEvent } from "../../src/lib/audit/chain";
+import fixture from "../fixtures/scenarios.json";
+import { appendEvent, getAuditAppendTimeoutMs } from "../../src/lib/audit/chain";
 import { PayPalUnavailableError } from "../../src/lib/errors";
+import { MandateSchema } from "../../src/lib/schemas/mandate";
 import { MemoryStore } from "../../src/lib/store/memory";
+import { PrismaStore } from "../../src/lib/store/prisma";
 import { withStoreTimeout } from "../../src/lib/store/timeout";
-import type { Store } from "../../src/lib/store/types";
-import { TimeoutError, withTimeout } from "../../src/lib/timeout";
+import type { AuditEventRecord, Store } from "../../src/lib/store/types";
+import { getDbConnectTimeoutMs, getDbQueryTimeoutMs, getDbStoreTimeoutMs, TimeoutError, withTimeout } from "../../src/lib/timeout";
 
 const runtimeState = vi.hoisted(() => ({ store: undefined as unknown as Store }));
 const mockCompleteCheckout = vi.hoisted(() => vi.fn());
@@ -179,6 +182,147 @@ describe("timeout helpers and fast generic failure paths", () => {
     }));
     expect(completeRes.status).toBe(502);
     expect(await completeRes.json()).toEqual({ error: "PayPal Sandbox is temporarily unavailable. Please try again." });
+  });
+
+  it("keeps default withStoreTimeout and audit append timeout at least as long as configured DB timeouts", async () => {
+    vi.useFakeTimers();
+    expect(getDbConnectTimeoutMs()).toBe(15_000);
+    expect(getDbQueryTimeoutMs()).toBe(15_000);
+    expect(getDbStoreTimeoutMs()).toBe(30_000);
+    expect(getAuditAppendTimeoutMs()).toBe(30_000);
+
+    vi.stubEnv("DB_CONNECT_TIMEOUT_MS", "20000");
+    vi.stubEnv("DB_QUERY_TIMEOUT_MS", "25000");
+    expect(getDbStoreTimeoutMs()).toBe(45_000);
+    expect(getAuditAppendTimeoutMs()).toBe(45_000);
+
+    const hungStore = withStoreTimeout(new Proxy(new MemoryStore(), {
+      get(target, property) {
+        if (property === "listMandates") return () => new Promise(() => {});
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    }));
+
+    const pendingRead = hungStore.listMandates();
+    const timedOutRead = expect(pendingRead).rejects.toBeInstanceOf(TimeoutError);
+    await vi.advanceTimersByTimeAsync(44_999);
+    expect(vi.getTimerCount()).toBe(1);
+    await vi.advanceTimersByTimeAsync(1);
+    await timedOutRead;
+    expect(vi.getTimerCount()).toBe(0);
+
+    let appendAttempts = 0;
+    const savedEvent: AuditEventRecord = {
+      id: 1,
+      type: "TEST_RETRY",
+      payload: { ok: true },
+      prevHash: "",
+      hash: "event-hash",
+      createdAt: new Date(0).toISOString(),
+    };
+    const retryingAuditStore = new Proxy(new MemoryStore(), {
+      get(target, property) {
+        if (property === "listAuditEvents") return async () => [];
+        if (property === "appendAuditEvent") {
+          return async () => {
+            appendAttempts += 1;
+            if (appendAttempts === 1) {
+              await new Promise((resolve) => setTimeout(resolve, 10_000));
+              throw new Error("Audit chain changed during append; retry with the latest tail");
+            }
+            return savedEvent;
+          };
+        }
+        const value = Reflect.get(target, property);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+
+    const appendPromise = appendEvent(retryingAuditStore, "TEST_RETRY", { ok: true });
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await appendPromise).toEqual(savedEvent);
+    expect(appendAttempts).toBe(2);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("retries PrismaStore read paths once on connection errors and never retries writes or transaction-scoped reads", async () => {
+    const parsedMandate = MandateSchema.parse(fixture.baseMandate);
+    const mandateRow = {
+      id: parsedMandate.mandateId,
+      familyId: parsedMandate.mandateId,
+      version: parsedMandate.version,
+      text: parsedMandate.originalText,
+      constraints: {
+        currency: parsedMandate.currency,
+        hardConstraints: parsedMandate.hardConstraints,
+        softConstraints: parsedMandate.softConstraints,
+        ambiguity: parsedMandate.ambiguity,
+      },
+      hash: "hash-1",
+      status: parsedMandate.status,
+      confirmedAt: parsedMandate.confirmedAt ? new Date(parsedMandate.confirmedAt) : null,
+    };
+
+    const transientConnectionError = Object.assign(new Error("Connection terminated due to connection timeout"), {
+      cause: new Error("Connection terminated unexpectedly"),
+    });
+
+    const findUnique = vi.fn()
+      .mockRejectedValueOnce(transientConnectionError)
+      .mockResolvedValueOnce(mandateRow);
+    const findMany = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error("Server has closed the connection"), { code: "P1017" }))
+      .mockRejectedValueOnce(new TimeoutError("Database request timed out"));
+    const create = vi.fn().mockRejectedValue(Object.assign(new Error("connect ECONNRESET"), { code: "ECONNRESET" }));
+
+    const fakePrisma = {
+      mandate: { findUnique, findMany, create },
+      auditEvent: { findMany: vi.fn().mockRejectedValue(transientConnectionError) },
+    };
+
+    const store = new PrismaStore(fakePrisma as never);
+    const loaded = await store.getMandate(parsedMandate.mandateId);
+    expect(loaded?.mandateId).toBe(parsedMandate.mandateId);
+    expect(findUnique).toHaveBeenCalledTimes(2);
+
+    await expect(store.listMandates()).rejects.toBeInstanceOf(TimeoutError);
+    expect(findMany).toHaveBeenCalledTimes(2);
+
+    // A non-idempotent write must never retry on a connection error.
+    await expect(store.createMandate({ ...parsedMandate, familyId: parsedMandate.mandateId, hash: "hash-1" }))
+      .rejects.toThrow(/ECONNRESET/);
+    expect(create).toHaveBeenCalledTimes(1);
+
+    const txRunner = vi.fn().mockRejectedValue(transientConnectionError);
+    const writeStore = new PrismaStore({ $transaction: txRunner } as never);
+    await expect(writeStore.appendAuditEvent({
+      type: "TEST_WRITE",
+      payload: { ok: true },
+      prevHash: "",
+      hash: "h1",
+      createdAt: new Date(0).toISOString(),
+    })).rejects.toThrow(/connection timeout/);
+    expect(txRunner).toHaveBeenCalledTimes(1);
+
+    // Non-connection errors (e.g. slow query read timeouts or unique constraint errors) must not retry.
+    const queryTimeoutFind = vi.fn().mockRejectedValue(new Error("Query read timeout"));
+    const adapterReadFind = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error("Driver error"), { cause: { kind: "DatabaseNotReachable" } }))
+      .mockResolvedValueOnce([mandateRow]);
+    const selectiveStore = new PrismaStore({
+      mandate: { findUnique: queryTimeoutFind, findMany: adapterReadFind },
+    } as never);
+    await expect(selectiveStore.getMandate(parsedMandate.mandateId)).rejects.toThrow(/Query read timeout/);
+    expect(queryTimeoutFind).toHaveBeenCalledTimes(1);
+    expect(await selectiveStore.listMandates()).toHaveLength(1);
+    expect(adapterReadFind).toHaveBeenCalledTimes(2);
+
+    // Transaction-scoped reads must not retry after a statement failure inside a transaction.
+    const txFindUnique = vi.fn().mockRejectedValue(transientConnectionError);
+    const txStore = new PrismaStore({ mandate: { findUnique: txFindUnique } } as never, true);
+    await expect(txStore.getMandate(parsedMandate.mandateId)).rejects.toThrow(/connection timeout/);
+    expect(txFindUnique).toHaveBeenCalledTimes(1);
   });
 });
 

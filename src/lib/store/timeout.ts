@@ -1,9 +1,9 @@
-import { DATABASE_OPERATION_TIMEOUT_MS, withTimeout } from "../timeout";
+import { getDbStoreTimeoutMs, withTimeout } from "../timeout";
 import type { Store } from "./types";
 
-export function withStoreTimeout(store: Store, timeoutMs = DATABASE_OPERATION_TIMEOUT_MS): Store {
+export function withStoreTimeout(store: Store, timeoutMs?: number): Store {
   const guard = <T>(operation: Promise<T>): Promise<T> =>
-    withTimeout(operation, timeoutMs, "Database request timed out");
+    withTimeout(operation, timeoutMs ?? getDbStoreTimeoutMs(), "Database request timed out");
 
   return {
     getSemanticCheckCache: (...args) => guard(store.getSemanticCheckCache(...args)),

@@ -1,3 +1,12 @@
+import {
+  DB_TIMEOUT_MAX_MS,
+  DB_TIMEOUT_MIN_MS,
+  DEFAULT_DB_CONNECT_TIMEOUT_MS,
+  DEFAULT_DB_QUERY_TIMEOUT_MS,
+  DbTimeoutEnvSchema,
+  type DbTimeoutEnvName,
+} from "./timeout";
+
 export const PAYPAL_SANDBOX_API_BASE = "https://api-m.sandbox.paypal.com";
 
 export const REQUIRED_ENV_NAMES = [
@@ -12,7 +21,16 @@ export const REQUIRED_ENV_NAMES = [
   "NODE_VERSION",
 ] as const;
 
+export const OPTIONAL_ENV_NAMES = [
+  "PAYPAL_BASE_URL",
+  "AI_TIMEOUT_MS",
+  "DB_CONNECT_TIMEOUT_MS",
+  "DB_QUERY_TIMEOUT_MS",
+  "DEMO_RESET_ENABLED",
+] as const;
+
 export type RequiredEnvName = (typeof REQUIRED_ENV_NAMES)[number];
+export type OptionalEnvName = (typeof OPTIONAL_ENV_NAMES)[number];
 export type EnvCheckStatus = "ok" | "missing" | "invalid";
 
 export interface EnvCheckItem {
@@ -199,6 +217,27 @@ function checkAiTimeoutMs(env: NodeJS.ProcessEnv): EnvCheckItem {
   return { name: "AI_TIMEOUT_MS", required: false, status: "ok", message: "valid integer timeout within 1..120000" };
 }
 
+function checkDbTimeoutMs(name: DbTimeoutEnvName, defaultMs: number, env: NodeJS.ProcessEnv): EnvCheckItem {
+  const value = env[name]?.trim();
+  if (!value) {
+    return { name, required: false, status: "ok", message: `unset (defaults to ${defaultMs}ms)` };
+  }
+  if (!DbTimeoutEnvSchema.safeParse(value).success) {
+    return {
+      name,
+      required: false,
+      status: "invalid",
+      message: `must be an integer between ${DB_TIMEOUT_MIN_MS} and ${DB_TIMEOUT_MAX_MS}`,
+    };
+  }
+  return {
+    name,
+    required: false,
+    status: "ok",
+    message: `valid integer timeout within ${DB_TIMEOUT_MIN_MS}..${DB_TIMEOUT_MAX_MS}`,
+  };
+}
+
 function checkDemoResetEnabled(env: NodeJS.ProcessEnv, hosted: boolean): EnvCheckItem {
   const value = env.DEMO_RESET_ENABLED?.trim();
   if (hosted && value === "true") {
@@ -229,6 +268,8 @@ export function inspectEnvConfiguration(
     checkNodeVersion(env, hosted),
     checkPayPalBaseUrl(env),
     checkAiTimeoutMs(env),
+    checkDbTimeoutMs("DB_CONNECT_TIMEOUT_MS", DEFAULT_DB_CONNECT_TIMEOUT_MS, env),
+    checkDbTimeoutMs("DB_QUERY_TIMEOUT_MS", DEFAULT_DB_QUERY_TIMEOUT_MS, env),
     checkDemoResetEnabled(env, hosted),
   ];
 

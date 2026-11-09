@@ -36,10 +36,16 @@ describe("health endpoints", () => {
     expect(getPrismaMock).not.toHaveBeenCalled();
   });
 
-  it("returns a generic unavailable response within four seconds when the database hangs", async () => {
+  it("returns a generic unavailable response within ten seconds when the database hangs", async () => {
     stubAllRequiredEnv();
     vi.useFakeTimers();
-    getPrismaMock.mockReturnValue({ $queryRaw: vi.fn(() => new Promise(() => {})) } as unknown as ReturnType<typeof getPrismaClient>);
+    let rejectHungQuery!: (error: Error) => void;
+    const queryRaw = vi.fn(() => new Promise((_resolve, reject) => {
+      rejectHungQuery = reject;
+    }));
+    getPrismaMock.mockReturnValue({ $queryRaw: queryRaw } as unknown as ReturnType<typeof getPrismaClient>);
+    expect(DATABASE_HEALTH_TIMEOUT_MS).toBe(10_000);
+
     const responsePromise = deepHealth();
     await vi.advanceTimersByTimeAsync(DATABASE_HEALTH_TIMEOUT_MS);
     const response = await responsePromise;
@@ -50,6 +56,39 @@ describe("health endpoints", () => {
       config: { ok: true, missing: [] },
     });
     expect(vi.getTimerCount()).toBe(0);
+
+    // A late connection error settling after the 10s timeout must not trigger an orphaned retry.
+    rejectHungQuery(new Error("Connection terminated due to connection timeout"));
+    await Promise.resolve();
+    expect(queryRaw).toHaveBeenCalledTimes(1);
+  });
+
+  it("retries once on connection errors in deep health before succeeding or returning 503", async () => {
+    stubAllRequiredEnv();
+    const transient = vi.fn()
+      .mockRejectedValueOnce(Object.assign(new Error("Connection terminated due to connection timeout"), {
+        cause: new Error("Connection terminated unexpectedly"),
+      }))
+      .mockResolvedValueOnce([{ 1: 1 }]);
+    getPrismaMock.mockReturnValue({ $queryRaw: transient } as unknown as ReturnType<typeof getPrismaClient>);
+
+    const okResponse = await deepHealth();
+    expect(okResponse.status).toBe(200);
+    expect(transient).toHaveBeenCalledTimes(2);
+
+    const persistent = vi.fn().mockRejectedValue(Object.assign(new Error("connect ECONNRESET"), { code: "ECONNRESET" }));
+    getPrismaMock.mockReturnValue({ $queryRaw: persistent } as unknown as ReturnType<typeof getPrismaClient>);
+
+    const failResponse = await deepHealth();
+    expect(failResponse.status).toBe(503);
+    expect(persistent).toHaveBeenCalledTimes(2);
+
+    const syntaxError = vi.fn().mockRejectedValue(new Error("relation does not exist"));
+    getPrismaMock.mockReturnValue({ $queryRaw: syntaxError } as unknown as ReturnType<typeof getPrismaClient>);
+
+    const nonConnectionResponse = await deepHealth();
+    expect(nonConnectionResponse.status).toBe(503);
+    expect(syntaxError).toHaveBeenCalledTimes(1);
   });
 
   it("returns healthy when the database query succeeds", async () => {

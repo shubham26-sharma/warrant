@@ -1,1 +1,2 @@
-export const DATABASE_HEALTH_TIMEOUT_MS = 4000;
+export const DATABASE_HEALTH_TIMEOUT_MS = 10_000;
+

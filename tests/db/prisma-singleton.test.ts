@@ -51,8 +51,8 @@ describe("getPrismaClient pooling and singleton lifecycle", () => {
     expect(pgConstructMock).toHaveBeenCalledWith(
       expect.objectContaining({
         max: 5,
-        connectionTimeoutMillis: 4000,
-        query_timeout: 5000,
+        connectionTimeoutMillis: 15_000,
+        query_timeout: 15_000,
         idleTimeoutMillis: 20_000,
         allowExitOnIdle: true,
       }),
@@ -61,6 +61,34 @@ describe("getPrismaClient pooling and singleton lifecycle", () => {
         onConnectionError: expect.any(Function),
       }),
     );
+  });
+
+  it("configures DB_CONNECT_TIMEOUT_MS and DB_QUERY_TIMEOUT_MS from env and validates integer bounds", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("DATABASE_URL", "postgresql://user:pass@ep-demo.neon.tech/neondb?sslmode=verify-full");
+    vi.stubEnv("DB_CONNECT_TIMEOUT_MS", "22000");
+    vi.stubEnv("DB_QUERY_TIMEOUT_MS", "18000");
+
+    const configured = getPrismaClient();
+    expect(pgConstructMock).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        connectionTimeoutMillis: 22_000,
+        query_timeout: 18_000,
+      }),
+      expect.any(Object),
+    );
+
+    vi.stubEnv("DB_CONNECT_TIMEOUT_MS", "12000");
+    expect(getPrismaClient()).not.toBe(configured);
+
+    for (const invalid of ["999", "60001", "15000.5", "not-a-number"]) {
+      vi.stubEnv("DB_CONNECT_TIMEOUT_MS", invalid);
+      expect(() => getPrismaClient()).toThrow(/DB_CONNECT_TIMEOUT_MS must be an integer between 1000 and 60000/);
+      vi.stubEnv("DB_CONNECT_TIMEOUT_MS", "15000");
+      vi.stubEnv("DB_QUERY_TIMEOUT_MS", invalid);
+      expect(() => getPrismaClient()).toThrow(/DB_QUERY_TIMEOUT_MS must be an integer between 1000 and 60000/);
+      vi.stubEnv("DB_QUERY_TIMEOUT_MS", "15000");
+    }
   });
 
   it("creates a fresh client when DATABASE_URL changes", () => {

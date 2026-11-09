@@ -1,6 +1,6 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../../generated/prisma/client";
-import { DATABASE_CONNECT_TIMEOUT_MS, DATABASE_OPERATION_TIMEOUT_MS } from "../timeout";
+import { getDbConnectTimeoutMs, getDbQueryTimeoutMs } from "../timeout";
 
 const globalPrisma = globalThis as typeof globalThis & {
   warrantPrisma?: PrismaClient;
@@ -10,7 +10,10 @@ const globalPrisma = globalThis as typeof globalThis & {
 export function getPrismaClient(): PrismaClient {
   const connectionString = process.env.DATABASE_URL?.trim();
   if (!connectionString) throw new Error("DATABASE_URL is not configured");
-  if (globalPrisma.warrantPrisma && globalPrisma.warrantPrismaUrl === connectionString) {
+  const connectTimeoutMs = getDbConnectTimeoutMs();
+  const queryTimeoutMs = getDbQueryTimeoutMs();
+  const cacheKey = `${connectionString}|${connectTimeoutMs}|${queryTimeoutMs}`;
+  if (globalPrisma.warrantPrisma && globalPrisma.warrantPrismaUrl === cacheKey) {
     return globalPrisma.warrantPrisma;
   }
 
@@ -18,9 +21,9 @@ export function getPrismaClient(): PrismaClient {
     {
       connectionString,
       max: 5,
-      connectionTimeoutMillis: DATABASE_CONNECT_TIMEOUT_MS,
+      connectionTimeoutMillis: connectTimeoutMs,
       idleTimeoutMillis: 20_000,
-      query_timeout: DATABASE_OPERATION_TIMEOUT_MS,
+      query_timeout: queryTimeoutMs,
       allowExitOnIdle: true,
     },
     {
@@ -34,6 +37,6 @@ export function getPrismaClient(): PrismaClient {
   );
   const client = new PrismaClient({ adapter });
   globalPrisma.warrantPrisma = client;
-  globalPrisma.warrantPrismaUrl = connectionString;
+  globalPrisma.warrantPrismaUrl = cacheKey;
   return client;
 }

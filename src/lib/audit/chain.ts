@@ -1,9 +1,13 @@
 import { createHmac } from "node:crypto";
 import { canonicalJson, chainHash } from "../hash";
-import { DATABASE_OPERATION_TIMEOUT_MS, TimeoutError } from "../timeout";
+import { getDbStoreTimeoutMs, TimeoutError } from "../timeout";
 import type { AuditEventRecord, Store } from "../store/types";
 
 let appendQueue: Promise<void> = Promise.resolve();
+
+export function getAuditAppendTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  return getDbStoreTimeoutMs(env);
+}
 
 function hashEvent(prevHash: string, type: string, payload: unknown, timestamp: string): string {
   const secret = process.env.AUDIT_HMAC_SECRET;
@@ -13,7 +17,7 @@ function hashEvent(prevHash: string, type: string, payload: unknown, timestamp: 
 }
 
 async function appendLocked(store: Store, type: string, payload: unknown): Promise<AuditEventRecord> {
-  const deadlineAt = Date.now() + DATABASE_OPERATION_TIMEOUT_MS;
+  const deadlineAt = Date.now() + getAuditAppendTimeoutMs();
   for (let attempt = 0; attempt < 5; attempt += 1) {
     const events = await store.listAuditEvents();
     const last = events.at(-1);

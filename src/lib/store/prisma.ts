@@ -1,4 +1,6 @@
 import { Prisma, type PrismaClient } from "../../generated/prisma/client";
+import { retryOnceOnDbConnectionError } from "../db/retry";
+import { getDbStoreTimeoutMs } from "../timeout";
 import { AiResultSchema, RuleResultSchema, VerdictSchema } from "../schemas/decision";
 import { z } from "zod";
 import { CartSchema } from "../schemas/cart";
@@ -13,6 +15,13 @@ export class PrismaStore implements Store {
     private readonly prisma: PrismaClient | Prisma.TransactionClient,
     private readonly transactionScoped = false,
   ) {}
+
+  private read<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.transactionScoped) return operation();
+    return retryOnceOnDbConnectionError(operation, {
+      deadlineAt: Date.now() + getDbStoreTimeoutMs(),
+    });
+  }
 
   private mandate(row: { id: string; familyId: string; version: number; text: string; constraints: Prisma.JsonValue; hash: string; status: "DRAFT" | "CONFIRMED"; confirmedAt: Date | null }): MandateRecord {
     const details = row.constraints as { currency: string; hardConstraints: unknown; softConstraints: unknown; ambiguity: unknown };
@@ -33,7 +42,7 @@ export class PrismaStore implements Store {
   }
 
   async getSemanticCheckCache(promptVersion: string, modelName: string, mandateHash: string, cartHash: string) {
-    const row = await this.prisma.semanticCache.findUnique({ where: { promptVersion_modelName_mandateHash_cartHash: { promptVersion, modelName, mandateHash, cartHash } } });
+    const row = await this.read(() => this.prisma.semanticCache.findUnique({ where: { promptVersion_modelName_mandateHash_cartHash: { promptVersion, modelName, mandateHash, cartHash } } }));
     return row ? AiResultSchema.parse(row.result) : null;
   }
   async setSemanticCheckCache(promptVersion: string, modelName: string, mandateHash: string, cartHash: string, result: import("../schemas/decision").AiResult): Promise<void> {
@@ -51,19 +60,19 @@ export class PrismaStore implements Store {
       hash: record.hash, status: m.status, confirmedAt: m.confirmedAt ? new Date(m.confirmedAt) : null } });
     return this.mandate(row);
   }
-  async getMandate(id: string) { const row = await this.prisma.mandate.findUnique({ where: { id } }); return row ? this.mandate(row) : null; }
-  async listMandatesByFamily(familyId: string) { return (await this.prisma.mandate.findMany({ where: { familyId }, orderBy: { version: "asc" } })).map((row) => this.mandate(row)); }
-  async listMandates() { return (await this.prisma.mandate.findMany({ orderBy: [{ familyId: "asc" }, { version: "asc" }] })).map((row) => this.mandate(row)); }
+  async getMandate(id: string) { const row = await this.read(() => this.prisma.mandate.findUnique({ where: { id } })); return row ? this.mandate(row) : null; }
+  async listMandatesByFamily(familyId: string) { return (await this.read(() => this.prisma.mandate.findMany({ where: { familyId }, orderBy: { version: "asc" } }))).map((row) => this.mandate(row)); }
+  async listMandates() { return (await this.read(() => this.prisma.mandate.findMany({ orderBy: [{ familyId: "asc" }, { version: "asc" }] }))).map((row) => this.mandate(row)); }
   async createCartProposal(record: CartProposalRecord) {
     const row = await this.prisma.cartProposal.create({ data: { ...record, cart: json(CartSchema.parse(record.cart)) } });
     return { ...record, cart: CartSchema.parse(row.cart) };
   }
   async getCartProposal(id: string) {
-    const row = await this.prisma.cartProposal.findUnique({ where: { id } });
+    const row = await this.read(() => this.prisma.cartProposal.findUnique({ where: { id } }));
     return row ? { id: row.id, mandateId: row.mandateId, cart: CartSchema.parse(row.cart), cartHash: row.cartHash, source: row.source } : null;
   }
   async listCartProposals() {
-    return (await this.prisma.cartProposal.findMany()).map((row) => ({ id: row.id, mandateId: row.mandateId, cart: CartSchema.parse(row.cart), cartHash: row.cartHash, source: row.source }));
+    return (await this.read(() => this.prisma.cartProposal.findMany())).map((row) => ({ id: row.id, mandateId: row.mandateId, cart: CartSchema.parse(row.cart), cartHash: row.cartHash, source: row.source }));
   }
   async createDecision(record: DecisionRecord) {
     const ruleResults = z.array(RuleResultSchema).parse(record.ruleResults);
@@ -72,23 +81,23 @@ export class PrismaStore implements Store {
       aiResult: record.aiResult ? json(AiResultSchema.parse(record.aiResult)) : Prisma.JsonNull, reasons: json(reasons), createdAt: new Date(record.createdAt) } });
     return this.decision(row);
   }
-  async getDecision(id: string) { const row = await this.prisma.decision.findUnique({ where: { id } }); return row ? this.decision(row) : null; }
-  async listDecisions() { return (await this.prisma.decision.findMany({ orderBy: { createdAt: "desc" } })).map((row) => this.decision(row)); }
+  async getDecision(id: string) { const row = await this.read(() => this.prisma.decision.findUnique({ where: { id } })); return row ? this.decision(row) : null; }
+  async listDecisions() { return (await this.read(() => this.prisma.decision.findMany({ orderBy: { createdAt: "desc" } }))).map((row) => this.decision(row)); }
   async createHumanApproval(record: HumanApprovalRecord) {
     const row = await this.prisma.humanApproval.create({ data: { ...record, createdAt: new Date(record.createdAt) } });
     return { id: row.id, decisionId: row.decisionId, note: row.note, createdAt: iso(row.createdAt) };
   }
   async getHumanApprovalByDecision(decisionId: string) {
-    const row = await this.prisma.humanApproval.findUnique({ where: { decisionId } });
+    const row = await this.read(() => this.prisma.humanApproval.findUnique({ where: { decisionId } }));
     return row ? { id: row.id, decisionId: row.decisionId, note: row.note, createdAt: iso(row.createdAt) } : null;
   }
   async createPayPalOrder(record: PayPalOrderRecord) {
     const row = await this.prisma.payPalOrder.create({ data: { ...record, createdAt: new Date(record.createdAt) } });
     return this.order(row);
   }
-  async getPayPalOrder(id: string) { const row = await this.prisma.payPalOrder.findUnique({ where: { id } }); return row ? this.order(row) : null; }
-  async getPayPalOrderByDecision(decisionId: string) { const row = await this.prisma.payPalOrder.findUnique({ where: { decisionId } }); return row ? this.order(row) : null; }
-  async getPayPalOrderByPayPalId(paypalOrderId: string) { const row = await this.prisma.payPalOrder.findUnique({ where: { paypalOrderId } }); return row ? this.order(row) : null; }
+  async getPayPalOrder(id: string) { const row = await this.read(() => this.prisma.payPalOrder.findUnique({ where: { id } })); return row ? this.order(row) : null; }
+  async getPayPalOrderByDecision(decisionId: string) { const row = await this.read(() => this.prisma.payPalOrder.findUnique({ where: { decisionId } })); return row ? this.order(row) : null; }
+  async getPayPalOrderByPayPalId(paypalOrderId: string) { const row = await this.read(() => this.prisma.payPalOrder.findUnique({ where: { paypalOrderId } })); return row ? this.order(row) : null; }
   async updatePayPalOrder(record: PayPalOrderRecord) {
     const row = await this.prisma.payPalOrder.update({ where: { id: record.id }, data: { status: record.status, captureId: record.captureId } });
     return this.order(row);
@@ -108,7 +117,7 @@ export class PrismaStore implements Store {
     return (this.prisma as PrismaClient).$transaction(append);
   }
   async listAuditEvents(): Promise<AuditEventRecord[]> {
-    return (await this.prisma.auditEvent.findMany({ orderBy: { id: "asc" } })).map((row) => ({ id: row.id, type: row.type, payload: row.payload, prevHash: row.prevHash, hash: row.hash, createdAt: iso(row.createdAt) }));
+    return (await this.read(() => this.prisma.auditEvent.findMany({ orderBy: { id: "asc" } }))).map((row) => ({ id: row.id, type: row.type, payload: row.payload, prevHash: row.prevHash, hash: row.hash, createdAt: iso(row.createdAt) }));
   }
   async clearDemoData(): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
